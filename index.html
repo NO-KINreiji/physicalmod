@@ -1,11 +1,9 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
+<meta charset="UTF-8">
 <meta name="viewport"
 content="width=device-width,initial-scale=1,user-scalable=no">
-
-<title>Matter.js Physics</title>
 
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
 
@@ -21,7 +19,6 @@ display:block;
 }
 </style>
 </head>
-
 <body>
 
 <script>
@@ -32,46 +29,26 @@ Render,
 Runner,
 Bodies,
 Body,
-Composite,
-Constraint,
-Mouse,
-MouseConstraint
+Composite
 } = Matter;
 
-/* ==========================
-   ENGINE
-========================== */
+const engine = Engine.create();
 
-const engine = Engine.create({
-gravity:{
-x:0,
-y:1
-}
-});
-
-engine.positionIterations = 30;
-engine.velocityIterations = 25;
-engine.constraintIterations = 15;
+engine.positionIterations = 20;
+engine.velocityIterations = 16;
+engine.constraintIterations = 8;
 
 const world = engine.world;
 
-/* ==========================
-   SIZE
-========================== */
-
-const W = window.innerWidth;
-const H = window.innerHeight;
-
-/* ==========================
-   RENDER
-========================== */
+const w = innerWidth;
+const h = innerHeight;
 
 const render = Render.create({
 element:document.body,
-engine:engine,
+engine,
 options:{
-width:W,
-height:H,
+width:w,
+height:h,
 wireframes:false,
 background:"#111"
 }
@@ -79,255 +56,188 @@ background:"#111"
 
 Render.run(render);
 
-/* ==========================
-   RUNNER
-========================== */
-
 const runner = Runner.create();
 
 Runner.run(runner,engine);
 
-/* ==========================
-   WALLS
-========================== */
-
-const thickness = 100;
+const wallThickness = 100;
 
 const walls = [
 
 Bodies.rectangle(
-W/2,
--thickness/2,
-W,
-thickness,
-{
-isStatic:true
-}
+w/2,
+-half=wallThickness/2,
+w,
+wallThickness,
+{isStatic:true}
 ),
 
 Bodies.rectangle(
-W/2,
-H+thickness/2,
-W,
-thickness,
-{
-isStatic:true
-}
+w/2,
+h+wallThickness/2,
+w,
+wallThickness,
+{isStatic:true}
 ),
 
 Bodies.rectangle(
--thickness/2,
-H/2,
-thickness,
-H,
-{
-isStatic:true
-}
+-wallThickness/2,
+h/2,
+wallThickness,
+h,
+{isStatic:true}
 ),
 
 Bodies.rectangle(
-W+thickness/2,
-H/2,
-thickness,
-H,
-{
-isStatic:true
-}
+w+wallThickness/2,
+h/2,
+wallThickness,
+h,
+{isStatic:true}
 )
 
 ];
 
-/* ==========================
-   BALL
-========================== */
-
 const ball = Bodies.circle(
-W*0.3,
-120,
-28,
+w*0.3,
+100,
+25,
 {
-density:0.002,
-friction:0.01,
-frictionAir:0.0005,
 restitution:0.95,
-
+friction:0,
+frictionAir:0.001,
+density:0.002,
 render:{
-fillStyle:"#2da8ff"
+fillStyle:"#00AAFF"
 }
 }
 );
 
-/* ==========================
-   PLAYER
-========================== */
-
-const player = Bodies.rectangle(
-W*0.5,
-H*0.7,
+const paddle = Bodies.rectangle(
+w*0.5,
+h*0.7,
 220,
 40,
 {
-density:0.05,
-friction:0.3,
-frictionAir:0.02,
-restitution:0.2,
-
+isStatic:true,
 render:{
-fillStyle:"#ff4444"
+fillStyle:"#FF4444"
 }
 }
 );
 
-/* ==========================
-   TOUCH TARGET
-========================== */
-
-const target = {
-x:player.position.x,
-y:player.position.y
-};
-
-const dragConstraint = Constraint.create({
-
-pointA:target,
-
-bodyB:player,
-
-stiffness:0.25,
-
-damping:0.12,
-
-length:0
-
-});
-
-/* ==========================
-   WORLD
-========================== */
-
-Composite.add(
-world,
+Composite.add(world,
 [
 ...walls,
 ball,
-player,
-dragConstraint
-]
+paddle
+]);
+
+let dragging=false;
+
+let prevX=0;
+let prevY=0;
+let prevT=performance.now();
+
+function movePaddle(x,y){
+
+const now=performance.now();
+const dt=(now-prevT)/1000 || 0.001;
+
+const vx=(x-prevX)/dt;
+const vy=(y-prevY)/dt;
+
+Body.setPosition(
+paddle,
+{x,y}
 );
 
-/* ==========================
-   TOUCH
-========================== */
+Body.setVelocity(
+paddle,
+{ x:vx , y:vy }
+);
 
-function setPointer(x,y){
-
-target.x = x;
-target.y = y;
+prevX=x;
+prevY=y;
+prevT=now;
 
 }
 
-window.addEventListener(
-"touchstart",
-e=>{
+addEventListener("touchstart",e=>{
+
+dragging=true;
 
 const t=e.touches[0];
 
-setPointer(
+prevX=t.clientX;
+prevY=t.clientY;
+
+});
+
+addEventListener("touchmove",e=>{
+
+if(!dragging)return;
+
+const t=e.touches[0];
+
+movePaddle(
 t.clientX,
 t.clientY
 );
 
-},
-{passive:false}
-);
+},{passive:false});
 
-window.addEventListener(
-"touchmove",
-e=>{
+addEventListener("touchend",()=>{
 
-const t=e.touches[0];
+dragging=false;
 
-setPointer(
-t.clientX,
-t.clientY
-);
+});
 
-},
-{passive:false}
-);
+addEventListener("mousedown",e=>{
 
-window.addEventListener(
-"mousedown",
-e=>{
+dragging=true;
 
-setPointer(
+prevX=e.clientX;
+prevY=e.clientY;
+
+});
+
+addEventListener("mousemove",e=>{
+
+if(!dragging)return;
+
+movePaddle(
 e.clientX,
 e.clientY
 );
 
-}
-);
+});
 
-window.addEventListener(
-"mousemove",
-e=>{
+addEventListener("mouseup",()=>{
 
-if(e.buttons!==1)return;
+dragging=false;
 
-setPointer(
-e.clientX,
-e.clientY
-);
+});
 
-}
-);
+function physicsLoop(){
 
-/* ==========================
-   HIGH PHYSICS UPDATE
-========================== */
-
-let previous = performance.now();
-
-function update(now){
-
-let dt = now - previous;
-
-previous = now;
-
-const fixed = 1000/240;
-
-while(dt > 0){
+for(let i=0;i<2;i++){
 
 Engine.update(
 engine,
-Math.min(
-fixed,
-dt
-)
+1000/120
 );
 
-dt -= fixed;
 }
 
-requestAnimationFrame(update);
-}
-
-requestAnimationFrame(update);
-
-/* ==========================
-   RESIZE
-========================== */
-
-window.addEventListener(
-"resize",
-()=>{
-
-location.reload();
-
-}
+requestAnimationFrame(
+physicsLoop
 );
+
+}
+
+physicsLoop();
 
 </script>
-
 </body>
 </html>
