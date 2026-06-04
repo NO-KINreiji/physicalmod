@@ -2,242 +2,237 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport"
-content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 
-<script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+<title>Planck Physics Demo</title>
 
 <style>
 html,body{
-margin:0;
-overflow:hidden;
-background:#111;
-touch-action:none;
+    margin:0;
+    overflow:hidden;
+    background:#111;
+    touch-action:none;
 }
 canvas{
-display:block;
+    display:block;
 }
 </style>
+
+<script src="https://cdn.jsdelivr.net/npm/planck-js@0.3.31/dist/planck.min.js"></script>
+
 </head>
 <body>
 
+<canvas id="canvas"></canvas>
+
 <script>
 
-const {
-Engine,
-Render,
-Runner,
-Bodies,
-Body,
-Composite
-} = Matter;
+const pl = planck;
 
-const engine = Engine.create();
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-engine.positionIterations = 20;
-engine.velocityIterations = 16;
-engine.constraintIterations = 8;
-
-const world = engine.world;
-
-const w = innerWidth;
-const h = innerHeight;
-
-const render = Render.create({
-element:document.body,
-engine,
-options:{
-width:w,
-height:h,
-wireframes:false,
-background:"#111"
+function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
 }
+resize();
+addEventListener("resize",resize);
+
+const SCALE = 50;
+
+const world = new pl.World({
+    gravity: pl.Vec2(0,20)
 });
 
-Render.run(render);
-
-const runner = Runner.create();
-
-Runner.run(runner,engine);
-
-const wallThickness = 100;
-
-const walls = [
-
-Bodies.rectangle(
-w/2,
--half=wallThickness/2,
-w,
-wallThickness,
-{isStatic:true}
-),
-
-Bodies.rectangle(
-w/2,
-h+wallThickness/2,
-w,
-wallThickness,
-{isStatic:true}
-),
-
-Bodies.rectangle(
--wallThickness/2,
-h/2,
-wallThickness,
-h,
-{isStatic:true}
-),
-
-Bodies.rectangle(
-w+wallThickness/2,
-h/2,
-wallThickness,
-h,
-{isStatic:true}
-)
-
-];
-
-const ball = Bodies.circle(
-w*0.3,
-100,
-25,
-{
-restitution:0.95,
-friction:0,
-frictionAir:0.001,
-density:0.002,
-render:{
-fillStyle:"#00AAFF"
+function px(v){
+    return v * SCALE;
 }
+
+function m(v){
+    return v / SCALE;
 }
+
+const W = m(innerWidth);
+const H = m(innerHeight);
+
+const wall = world.createBody();
+
+wall.createFixture(
+    pl.Edge(pl.Vec2(0,0),pl.Vec2(W,0))
 );
 
-const paddle = Bodies.rectangle(
-w*0.5,
-h*0.7,
-220,
-40,
-{
-isStatic:true,
-render:{
-fillStyle:"#FF4444"
-}
-}
+wall.createFixture(
+    pl.Edge(pl.Vec2(0,H),pl.Vec2(W,H))
 );
 
-Composite.add(world,
-[
-...walls,
-ball,
-paddle
-]);
-
-let dragging=false;
-
-let prevX=0;
-let prevY=0;
-let prevT=performance.now();
-
-function movePaddle(x,y){
-
-const now=performance.now();
-const dt=(now-prevT)/1000 || 0.001;
-
-const vx=(x-prevX)/dt;
-const vy=(y-prevY)/dt;
-
-Body.setPosition(
-paddle,
-{x,y}
+wall.createFixture(
+    pl.Edge(pl.Vec2(0,0),pl.Vec2(0,H))
 );
 
-Body.setVelocity(
-paddle,
-{ x:vx , y:vy }
+wall.createFixture(
+    pl.Edge(pl.Vec2(W,0),pl.Vec2(W,H))
 );
 
-prevX=x;
-prevY=y;
-prevT=now;
-
-}
-
-addEventListener("touchstart",e=>{
-
-dragging=true;
-
-const t=e.touches[0];
-
-prevX=t.clientX;
-prevY=t.clientY;
-
+const ball = world.createDynamicBody({
+    position: pl.Vec2(W*0.3,2),
+    bullet:true
 });
 
-addEventListener("touchmove",e=>{
-
-if(!dragging)return;
-
-const t=e.touches[0];
-
-movePaddle(
-t.clientX,
-t.clientY
+ball.createFixture(
+    pl.Circle(0.5),
+    {
+        density:1,
+        restitution:0.95,
+        friction:0.01
+    }
 );
 
+const paddle = world.createDynamicBody({
+    position: pl.Vec2(W*0.5,H*0.7),
+    fixedRotation:true,
+    bullet:true
+});
+
+paddle.createFixture(
+    pl.Box(2,0.35),
+    {
+        density:20,
+        restitution:0.9,
+        friction:0.2
+    }
+);
+
+let targetX = W*0.5;
+let targetY = H*0.7;
+let dragging = false;
+
+function updateTarget(x,y){
+    targetX = m(x);
+    targetY = m(y);
+}
+
+canvas.addEventListener("touchstart",e=>{
+    dragging=true;
+    updateTarget(
+        e.touches[0].clientX,
+        e.touches[0].clientY
+    );
+});
+
+canvas.addEventListener("touchmove",e=>{
+    if(!dragging) return;
+
+    updateTarget(
+        e.touches[0].clientX,
+        e.touches[0].clientY
+    );
 },{passive:false});
 
-addEventListener("touchend",()=>{
-
-dragging=false;
-
+canvas.addEventListener("touchend",()=>{
+    dragging=false;
 });
 
-addEventListener("mousedown",e=>{
-
-dragging=true;
-
-prevX=e.clientX;
-prevY=e.clientY;
-
+canvas.addEventListener("mousedown",e=>{
+    dragging=true;
+    updateTarget(e.clientX,e.clientY);
 });
 
-addEventListener("mousemove",e=>{
-
-if(!dragging)return;
-
-movePaddle(
-e.clientX,
-e.clientY
-);
-
+canvas.addEventListener("mousemove",e=>{
+    if(!dragging) return;
+    updateTarget(e.clientX,e.clientY);
 });
 
-addEventListener("mouseup",()=>{
-
-dragging=false;
-
+canvas.addEventListener("mouseup",()=>{
+    dragging=false;
 });
 
-function physicsLoop(){
+const physicsHz = 240;
+const dt = 1 / physicsHz;
 
-for(let i=0;i<2;i++){
+let accumulator = 0;
+let last = performance.now();
 
-Engine.update(
-engine,
-1000/120
-);
+function applySpring(){
 
+    const pos = paddle.getPosition();
+    const vel = paddle.getLinearVelocity();
+
+    const dx = targetX - pos.x;
+    const dy = targetY - pos.y;
+
+    const springK = 300;
+    const damping = 35;
+
+    const fx = dx*springK - vel.x*damping;
+    const fy = dy*springK - vel.y*damping;
+
+    paddle.applyForceToCenter(
+        pl.Vec2(fx,fy),
+        true
+    );
+}
+
+function draw(){
+
+    ctx.clearRect(
+        0,0,
+        canvas.width,
+        canvas.height
+    );
+
+    const bp = ball.getPosition();
+
+    ctx.fillStyle="#00AAFF";
+
+    ctx.beginPath();
+    ctx.arc(
+        px(bp.x),
+        px(bp.y),
+        px(0.5),
+        0,
+        Math.PI*2
+    );
+    ctx.fill();
+
+    const pp = paddle.getPosition();
+
+    ctx.fillStyle="#FF4444";
+
+    ctx.fillRect(
+        px(pp.x)-px(2),
+        px(pp.y)-px(0.35),
+        px(4),
+        px(0.7)
+    );
+}
+
+function animate(now){
+
+    accumulator += (now-last)/1000;
+    last = now;
+
+    while(accumulator >= dt){
+
+        applySpring();
+
+        world.step(dt);
+
+        accumulator -= dt;
+    }
+
+    draw();
+
+    requestAnimationFrame(
+        animate
+    );
 }
 
 requestAnimationFrame(
-physicsLoop
+    animate
 );
 
-}
-
-physicsLoop();
-
 </script>
+
 </body>
 </html>
