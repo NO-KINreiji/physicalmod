@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Physics Ball Clean</title>
+<title>Physics Ball Gyro Toggle</title>
 
 <style>
 html,body{
@@ -11,16 +11,32 @@ html,body{
     overflow:hidden;
     background:#111;
     touch-action:none;
+    font-family: sans-serif;
 }
 
 canvas{
     display:block;
+}
+
+/* ジャイロボタン */
+#gyroBtn{
+    position:fixed;
+    top:10px;
+    right:10px;
+    z-index:10;
+    padding:10px 14px;
+    border:none;
+    border-radius:8px;
+    background:#00aaff;
+    color:#fff;
+    font-weight:bold;
 }
 </style>
 </head>
 
 <body>
 
+<button id="gyroBtn">ジャイロ ON</button>
 <canvas id="c"></canvas>
 
 <script>
@@ -36,7 +52,7 @@ resize();
 addEventListener("resize",resize);
 
 //----------------------
-// 物理設定
+// 物理
 //----------------------
 const gravity = 1600;
 const restitution = 0.88;
@@ -68,12 +84,78 @@ const paddle = {
 };
 
 //----------------------
-// 軌跡（短く）
+// ジャイロ状態
 //----------------------
-const trail = [];
+let gyroEnabled = false;
+
+let tiltX = 0;
+let tiltY = 0;
+
+let accelX = 0;
+let accelY = 0;
 
 //----------------------
-// タッチ操作
+// イベントハンドラ（参照保持）
+//----------------------
+function onOrientation(e){
+    const gamma = e.gamma || 0;
+    const beta = e.beta || 0;
+
+    tiltX = gamma * 8;
+    tiltY = beta * 6;
+}
+
+function onMotion(e){
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
+
+    accelX = (a.x || 0) * 25;
+    accelY = (a.y || 0) * 25;
+}
+
+//----------------------
+// ジャイロON/OFF
+//----------------------
+const btn = document.getElementById("gyroBtn");
+
+async function enableGyro(){
+
+    if (typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function") {
+
+        await DeviceMotionEvent.requestPermission();
+        await DeviceOrientationEvent.requestPermission();
+    }
+
+    window.addEventListener("deviceorientation", onOrientation);
+    window.addEventListener("devicemotion", onMotion);
+
+    gyroEnabled = true;
+    btn.textContent = "ジャイロ OFF";
+}
+
+function disableGyro(){
+
+    window.removeEventListener("deviceorientation", onOrientation);
+    window.removeEventListener("devicemotion", onMotion);
+
+    gyroEnabled = false;
+    tiltX = tiltY = 0;
+    accelX = accelY = 0;
+
+    btn.textContent = "ジャイロ ON";
+}
+
+btn.addEventListener("click", async () => {
+    if (!gyroEnabled) {
+        await enableGyro();
+    } else {
+        disableGyro();
+    }
+});
+
+//----------------------
+// パドル操作
 //----------------------
 let dragging=false;
 let lastX=0;
@@ -88,7 +170,6 @@ function startDrag(x,y){
 }
 
 function drag(x,y){
-
     const now=performance.now();
     const dt=(now-lastTime)/1000;
 
@@ -111,35 +192,32 @@ function endDrag(){
     paddle.vy=0;
 }
 
-//----------------------
-// 入力
-//----------------------
 canvas.addEventListener("touchstart",e=>{
     startDrag(e.touches[0].clientX,e.touches[0].clientY);
 });
-
 canvas.addEventListener("touchmove",e=>{
     drag(e.touches[0].clientX,e.touches[0].clientY);
 });
-
 canvas.addEventListener("touchend",endDrag);
 
 canvas.addEventListener("mousedown",e=>{
     startDrag(e.clientX,e.clientY);
 });
-
 canvas.addEventListener("mousemove",e=>{
     if(dragging) drag(e.clientX,e.clientY);
 });
-
 canvas.addEventListener("mouseup",endDrag);
 
 //----------------------
-// 物理処理
+// 物理
 //----------------------
 function physics(dt){
 
     ball.vy += gravity * dt;
+
+    // ジャイロ + 加速度
+    ball.vx += (tiltX + accelX) * dt;
+    ball.vy += (tiltY + accelY) * dt;
 
     ball.vx += ball.spin * 18 * dt;
     ball.spin *= 0.995;
@@ -156,13 +234,11 @@ function physics(dt){
     if(ball.x-ball.r<0){
         ball.x=ball.r;
         ball.vx=Math.abs(ball.vx)*restitution;
-        ball.spin*=-0.85;
     }
 
     if(ball.x+ball.r>canvas.width){
         ball.x=canvas.width-ball.r;
         ball.vx=-Math.abs(ball.vx)*restitution;
-        ball.spin*=-0.85;
     }
 
     if(ball.y-ball.r<0){
@@ -222,66 +298,6 @@ function physics(dt){
 }
 
 //----------------------
-// 更新（サブステップ）
-//----------------------
-function update(dt){
-
-    trail.push({x:ball.x,y:ball.y});
-
-    if(trail.length>8){
-        trail.shift();
-    }
-
-    const steps=4;
-    const step=dt/steps;
-
-    for(let i=0;i<steps;i++){
-        physics(step);
-    }
-}
-
-//----------------------
-// 描画
-//----------------------
-function draw(){
-
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    // 軌跡（薄く短く）
-    for(let i=0;i<trail.length;i++){
-
-        const p=trail[i];
-
-        ctx.globalAlpha=i/trail.length*0.25;
-
-        ctx.fillStyle="#00aaff";
-
-        ctx.beginPath();
-        ctx.arc(p.x,p.y,ball.r,0,Math.PI*2);
-        ctx.fill();
-    }
-
-    ctx.globalAlpha=1;
-
-    // ボール（線なし）
-    ctx.fillStyle="#00aaff";
-
-    ctx.beginPath();
-    ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);
-    ctx.fill();
-
-    // パドル
-    ctx.fillStyle="#ff4444";
-
-    ctx.fillRect(
-        paddle.x-paddle.w/2,
-        paddle.y-paddle.h/2,
-        paddle.w,
-        paddle.h
-    );
-}
-
-//----------------------
 // ループ
 //----------------------
 let prev=performance.now();
@@ -293,8 +309,23 @@ function loop(t){
 
     if(dt>0.03) dt=0.03;
 
-    update(dt);
-    draw();
+    physics(dt);
+
+    // 描画
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    ctx.fillStyle="#00aaff";
+    ctx.beginPath();
+    ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle="#ff4444";
+    ctx.fillRect(
+        paddle.x-paddle.w/2,
+        paddle.y-paddle.h/2,
+        paddle.w,
+        paddle.h
+    );
 
     requestAnimationFrame(loop);
 }
