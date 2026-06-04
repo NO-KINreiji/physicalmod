@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport"
+content="width=device-width,initial-scale=1,user-scalable=no">
+
+<style>
+html,body{
+margin:0;
+overflow:hidden;
+background:#111;
+touch-action:none;
+}
+canvas{
+display:block;
+}
+</style>
+</head>
+
+<body>
+<canvas id="c"></canvas>
+
+<script src="https://unpkg.com/planck-js@0.3.0/dist/planck.min.js"></script>
+
+<script>
+
+const pl = planck;
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+canvas.width = innerWidth;
+canvas.height = innerHeight;
+}
+resize();
+addEventListener("resize",resize);
+
+const SCALE = 30;
+
+const world = new pl.World({
+gravity: pl.Vec2(0,20)
+});
+
+function createWall(x,y,w,h){
+
+const body = world.createBody();
+
+body.createFixture(
+pl.Box(w/2,h/2),
+{
+friction:0,
+restitution:1
+}
+);
+
+body.setPosition(
+pl.Vec2(x,y)
+);
+
+return body;
+}
+
+createWall(6,-1,20,2);
+createWall(6,25,20,2);
+createWall(-1,12,2,30);
+createWall(15,12,2,30);
+
+const ball = world.createDynamicBody({
+position:pl.Vec2(4,2),
+bullet:true
+});
+
+ball.createFixture(
+pl.Circle(0.6),
+{
+density:1,
+restitution:0.95,
+friction:0
+}
+);
+
+ball.setLinearVelocity(
+pl.Vec2(12,0)
+);
+
+const paddle = world.createKinematicBody({
+position:pl.Vec2(6,18)
+});
+
+paddle.createFixture(
+pl.Box(2.5,0.4),
+{
+restitution:1,
+friction:0
+}
+);
+
+let dragging=false;
+let lastX=0;
+let lastY=0;
+let lastTime=performance.now();
+
+function movePaddle(px,py){
+
+const x = px/SCALE;
+const y = py/SCALE;
+
+const now = performance.now();
+const dt = (now-lastTime)/1000 || 0.001;
+
+const vx=(x-lastX)/dt;
+const vy=(y-lastY)/dt;
+
+paddle.setLinearVelocity(
+pl.Vec2(vx,vy)
+);
+
+paddle.setTransform(
+pl.Vec2(x,y),
+0
+);
+
+lastX=x;
+lastY=y;
+lastTime=now;
+}
+
+canvas.addEventListener("touchstart",e=>{
+
+dragging=true;
+
+lastX=e.touches[0].clientX/SCALE;
+lastY=e.touches[0].clientY/SCALE;
+
+});
+
+canvas.addEventListener("touchmove",e=>{
+
+if(!dragging)return;
+
+movePaddle(
+e.touches[0].clientX,
+e.touches[0].clientY
+);
+
+});
+
+canvas.addEventListener("touchend",()=>{
+
+dragging=false;
+paddle.setLinearVelocity(pl.Vec2());
+});
+
+canvas.addEventListener("mousedown",e=>{
+
+dragging=true;
+
+lastX=e.clientX/SCALE;
+lastY=e.clientY/SCALE;
+
+});
+
+canvas.addEventListener("mousemove",e=>{
+
+if(!dragging)return;
+
+movePaddle(
+e.clientX,
+e.clientY
+);
+
+});
+
+canvas.addEventListener("mouseup",()=>{
+
+dragging=false;
+paddle.setLinearVelocity(pl.Vec2());
+});
+
+function render(){
+
+ctx.clearRect(
+0,0,
+canvas.width,
+canvas.height
+);
+
+const bp=ball.getPosition();
+
+ctx.beginPath();
+ctx.arc(
+bp.x*SCALE,
+bp.y*SCALE,
+0.6*SCALE,
+0,
+Math.PI*2
+);
+ctx.fillStyle="#00AAFF";
+ctx.fill();
+
+const pp=paddle.getPosition();
+
+ctx.save();
+
+ctx.translate(
+pp.x*SCALE,
+pp.y*SCALE
+);
+
+ctx.fillStyle="#FF4444";
+
+ctx.fillRect(
+-2.5*SCALE,
+-0.4*SCALE,
+5*SCALE,
+0.8*SCALE
+);
+
+ctx.restore();
+}
+
+function loop(){
+
+world.step(
+1/240,
+12,
+8
+);
+
+render();
+
+requestAnimationFrame(loop);
+}
+
+loop();
+
+</script>
+</body>
+</html>
