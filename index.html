@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Physics Ball Motion Control</title>
+<title>Physics Ball Ultra</title>
 
 <style>
 html,body{
@@ -17,7 +17,7 @@ canvas{
     display:block;
 }
 
-#controls{
+#ui{
     position:fixed;
     top:10px;
     left:10px;
@@ -27,9 +27,9 @@ canvas{
 }
 
 button{
-    padding:10px 14px;
+    padding:10px 12px;
     border:none;
-    border-radius:10px;
+    border-radius:8px;
     background:#00aaff;
     color:white;
     font-size:14px;
@@ -39,7 +39,7 @@ button{
 
 <body>
 
-<div id="controls">
+<div id="ui">
     <button id="gyroOn">ジャイロON</button>
     <button id="gyroOff">ジャイロOFF</button>
 </div>
@@ -56,176 +56,182 @@ function resize(){
     canvas.height = innerHeight;
 }
 resize();
-addEventListener("resize", resize);
+addEventListener("resize",resize);
 
+//----------------------
+// 物理パラメータ
+//----------------------
+const gravity = 1600;
 const restitution = 0.88;
 const airDrag = 0.999;
 
-let motionEnabled = false;
+let gravityX = 0;
+let gravityY = gravity;
 
+let accelX = 0;
+let accelY = 0;
+
+let gyroEnabled = false;
+let motionHandler = null;
+
+//----------------------
+// ボール
+//----------------------
 const ball = {
-    x: innerWidth * 0.3,
+    x: innerWidth*0.3,
     y: 100,
-    vx: 350,
+    vx: 300,
     vy: 0,
     r: 25,
     spin: 0,
     angle: 0
 };
 
+//----------------------
+// パドル
+//----------------------
 const paddle = {
-    x: innerWidth * 0.5,
-    y: innerHeight * 0.7,
+    x: innerWidth*0.5,
+    y: innerHeight*0.7,
     w: 180,
     h: 35,
-    vx: 0,
-    vy: 0
+    vx:0,
+    vy:0
 };
 
+//----------------------
+// 軌跡（短く）
+//----------------------
 const trail = [];
 
-let dragging = false;
-let lastX = 0;
-let lastY = 0;
-let lastTime = performance.now();
-
-let motionX = 0;
-let motionY = 0;
-
-function handleMotion(e){
-
-    if(!motionEnabled) return;
-
-    const acc = e.accelerationIncludingGravity;
-
-    if(!acc) return;
-
-    const force = 35;
-
-    motionX += (acc.x || 0) * force;
-    motionY += -(acc.y || 0) * force;
-}
-
-async function enableMotion(){
-
-    try{
-
-        if(
-            typeof DeviceMotionEvent !== "undefined" &&
-            typeof DeviceMotionEvent.requestPermission === "function"
-        ){
-
-            const result =
-                await DeviceMotionEvent.requestPermission();
-
-            if(result !== "granted"){
-                return;
-            }
-        }
-
-        motionEnabled = true;
-
-    }catch(err){
-        console.error(err);
-    }
-}
-
-function disableMotion(){
-
-    motionEnabled = false;
-    motionX = 0;
-    motionY = 0;
-}
-
-document
-.getElementById("gyroOn")
-.addEventListener("click", enableMotion);
-
-document
-.getElementById("gyroOff")
-.addEventListener("click", disableMotion);
-
-window.addEventListener(
-    "devicemotion",
-    handleMotion,
-    true
-);
+//----------------------
+// タッチ操作
+//----------------------
+let dragging=false;
+let lastX=0;
+let lastY=0;
+let lastTime=performance.now();
 
 function startDrag(x,y){
-
-    dragging = true;
-
-    lastX = x;
-    lastY = y;
-    lastTime = performance.now();
+    dragging=true;
+    lastX=x;
+    lastY=y;
+    lastTime=performance.now();
 }
 
 function drag(x,y){
 
-    const now = performance.now();
-    const dt = (now - lastTime) / 1000;
+    const now=performance.now();
+    const dt=(now-lastTime)/1000;
 
-    if(dt > 0){
-
-        paddle.vx = (x - lastX) / dt;
-        paddle.vy = (y - lastY) / dt;
+    if(dt>0){
+        paddle.vx=(x-lastX)/dt;
+        paddle.vy=(y-lastY)/dt;
     }
 
-    paddle.x = x;
-    paddle.y = y;
+    paddle.x=x;
+    paddle.y=y;
 
-    lastX = x;
-    lastY = y;
-    lastTime = now;
+    lastX=x;
+    lastY=y;
+    lastTime=now;
 }
 
 function endDrag(){
-
-    dragging = false;
-
-    paddle.vx = 0;
-    paddle.vy = 0;
+    dragging=false;
+    paddle.vx=0;
+    paddle.vy=0;
 }
 
-canvas.addEventListener("touchstart", e=>{
-    startDrag(
-        e.touches[0].clientX,
-        e.touches[0].clientY
-    );
+//----------------------
+// 入力
+//----------------------
+canvas.addEventListener("touchstart",e=>{
+    startDrag(e.touches[0].clientX,e.touches[0].clientY);
 });
 
-canvas.addEventListener("touchmove", e=>{
-    drag(
-        e.touches[0].clientX,
-        e.touches[0].clientY
-    );
+canvas.addEventListener("touchmove",e=>{
+    drag(e.touches[0].clientX,e.touches[0].clientY);
 });
 
-canvas.addEventListener("touchend", endDrag);
+canvas.addEventListener("touchend",endDrag);
 
-canvas.addEventListener("mousedown", e=>{
+canvas.addEventListener("mousedown",e=>{
     startDrag(e.clientX,e.clientY);
 });
 
-canvas.addEventListener("mousemove", e=>{
-
-    if(dragging){
-        drag(e.clientX,e.clientY);
-    }
+canvas.addEventListener("mousemove",e=>{
+    if(dragging) drag(e.clientX,e.clientY);
 });
 
-canvas.addEventListener("mouseup", endDrag);
+canvas.addEventListener("mouseup",endDrag);
 
-function physicsStep(dt){
+//----------------------
+// ジャイロON
+//----------------------
+document.getElementById("gyroOn").onclick = async ()=>{
 
-    ball.vx += motionX * dt;
-    ball.vy += motionY * dt;
+    try{
 
-    motionX *= 0.92;
-    motionY *= 0.92;
+        if(typeof DeviceMotionEvent !== "undefined" &&
+           typeof DeviceMotionEvent.requestPermission === "function"){
+            const res = await DeviceMotionEvent.requestPermission();
+            if(res !== "granted") return;
+        }
 
-    ball.vx += ball.spin * 20 * dt;
+        gyroEnabled = true;
 
+        motionHandler = (e)=>{
+
+            const acc = e.accelerationIncludingGravity;
+
+            if(!acc) return;
+
+            // 傾き成分（重力っぽい）
+            gravityX = (acc.x || 0) * 40;
+            gravityY = (acc.y || 0) * 40;
+
+            // 振り（加速度）
+            accelX = (e.acceleration?.x || 0) * 120;
+            accelY = (e.acceleration?.y || 0) * 120;
+        };
+
+        window.addEventListener("devicemotion",motionHandler,true);
+
+    }catch(err){
+        console.error(err);
+    }
+};
+
+//----------------------
+// ジャイロOFF
+//----------------------
+document.getElementById("gyroOff").onclick = ()=>{
+
+    gyroEnabled = false;
+
+    if(motionHandler){
+        window.removeEventListener("devicemotion",motionHandler,true);
+        motionHandler = null;
+    }
+
+    gravityX = 0;
+    gravityY = gravity;
+    accelX = 0;
+    accelY = 0;
+};
+
+//----------------------
+// 物理更新
+//----------------------
+function physics(dt){
+
+    // 傾き重力 + 加速度 + 演算
+    ball.vx += (gravityX + accelX) * dt;
+    ball.vy += (gravityY + accelY) * dt;
+
+    // スピン
+    ball.vx += ball.spin * 18 * dt;
     ball.spin *= 0.995;
 
     ball.vx *= airDrag;
@@ -236,159 +242,129 @@ function physicsStep(dt){
 
     ball.angle += ball.spin * dt;
 
-    if(ball.x - ball.r < 0){
-
-        ball.x = ball.r;
-        ball.vx = Math.abs(ball.vx) * restitution;
-        ball.spin *= -0.9;
+    // 壁
+    if(ball.x-ball.r<0){
+        ball.x=ball.r;
+        ball.vx=Math.abs(ball.vx)*restitution;
+        ball.spin*=-0.85;
     }
 
-    if(ball.x + ball.r > canvas.width){
-
-        ball.x = canvas.width - ball.r;
-        ball.vx = -Math.abs(ball.vx) * restitution;
-        ball.spin *= -0.9;
+    if(ball.x+ball.r>canvas.width){
+        ball.x=canvas.width-ball.r;
+        ball.vx=-Math.abs(ball.vx)*restitution;
+        ball.spin*=-0.85;
     }
 
-    if(ball.y - ball.r < 0){
-
-        ball.y = ball.r;
-        ball.vy = Math.abs(ball.vy) * restitution;
+    if(ball.y-ball.r<0){
+        ball.y=ball.r;
+        ball.vy=Math.abs(ball.vy)*restitution;
     }
 
-    if(ball.y + ball.r > canvas.height){
-
-        ball.y = canvas.height - ball.r;
-        ball.vy = -Math.abs(ball.vy) * restitution;
+    if(ball.y+ball.r>canvas.height){
+        ball.y=canvas.height-ball.r;
+        ball.vy=-Math.abs(ball.vy)*restitution;
     }
 
-    const left = paddle.x - paddle.w/2;
-    const right = paddle.x + paddle.w/2;
-    const top = paddle.y - paddle.h/2;
-    const bottom = paddle.y + paddle.h/2;
+    // パドル衝突
+    const left=paddle.x-paddle.w/2;
+    const right=paddle.x+paddle.w/2;
+    const top=paddle.y-paddle.h/2;
+    const bottom=paddle.y+paddle.h/2;
 
-    const nearestX = Math.max(
-        left,
-        Math.min(ball.x,right)
-    );
+    const nx=Math.max(left,Math.min(ball.x,right));
+    const ny=Math.max(top,Math.min(ball.y,bottom));
 
-    const nearestY = Math.max(
-        top,
-        Math.min(ball.y,bottom)
-    );
+    const dx=ball.x-nx;
+    const dy=ball.y-ny;
 
-    const dx = ball.x - nearestX;
-    const dy = ball.y - nearestY;
+    const d2=dx*dx+dy*dy;
 
-    const dist2 = dx*dx + dy*dy;
+    if(d2<ball.r*ball.r){
 
-    if(dist2 < ball.r*ball.r){
+        const d=Math.sqrt(d2)||0.0001;
 
-        const dist = Math.sqrt(dist2) || 0.0001;
+        const ux=dx/d;
+        const uy=dy/d;
 
-        const nx = dx / dist;
-        const ny = dy / dist;
+        const overlap=ball.r-d;
 
-        const overlap = ball.r - dist;
+        ball.x+=ux*overlap;
+        ball.y+=uy*overlap;
 
-        ball.x += nx * overlap;
-        ball.y += ny * overlap;
+        const rvx=ball.vx-paddle.vx;
+        const rvy=ball.vy-paddle.vy;
 
-        const relvx = ball.vx - paddle.vx;
-        const relvy = ball.vy - paddle.vy;
+        const dot=rvx*ux+rvy*uy;
 
-        const dot = relvx*nx + relvy*ny;
+        if(dot<0){
 
-        if(dot < 0){
+            const imp=-(1+restitution)*dot;
 
-            const impulse =
-                -(1 + restitution) * dot;
+            ball.vx+=imp*ux;
+            ball.vy+=imp*uy;
 
-            ball.vx += impulse * nx;
-            ball.vy += impulse * ny;
-
-            ball.vx += paddle.vx * 0.35;
-            ball.vy += paddle.vy * 0.35;
+            ball.vx+=paddle.vx*0.35;
+            ball.vy+=paddle.vy*0.35;
 
             ball.spin += paddle.vx * 0.02;
         }
     }
 }
 
+//----------------------
+// 更新（サブステップ）
+//----------------------
 function update(dt){
 
-    trail.push({
-        x: ball.x,
-        y: ball.y
-    });
+    trail.push({x:ball.x,y:ball.y});
 
-    if(trail.length > 8){
+    if(trail.length>8){
         trail.shift();
     }
 
-    const substeps = 4;
-    const stepDt = dt / substeps;
+    const steps=4;
+    const step=dt/steps;
 
-    for(let i=0;i<substeps;i++){
-        physicsStep(stepDt);
+    for(let i=0;i<steps;i++){
+        physics(step);
     }
 }
 
+//----------------------
+// 描画
+//----------------------
 function draw(){
 
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
+    ctx.clearRect(0,0,canvas.width,canvas.height);
 
+    // 軌跡（短く薄い）
     for(let i=0;i<trail.length;i++){
 
-        const p = trail[i];
+        const p=trail[i];
 
-        ctx.globalAlpha =
-            (i / trail.length) * 0.12;
+        ctx.globalAlpha=i/trail.length*0.25;
 
-        ctx.fillStyle = "#00aaff";
+        ctx.fillStyle="#00aaff";
 
         ctx.beginPath();
-        ctx.arc(
-            p.x,
-            p.y,
-            ball.r,
-            0,
-            Math.PI * 2
-        );
+        ctx.arc(p.x,p.y,ball.r,0,Math.PI*2);
         ctx.fill();
     }
 
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha=1;
 
+    // ボール
     ctx.save();
-
-    ctx.translate(
-        ball.x,
-        ball.y
-    );
-
+    ctx.translate(ball.x,ball.y);
     ctx.rotate(ball.angle);
 
-    ctx.fillStyle = "#00aaff";
-
+    ctx.fillStyle="#00aaff";
     ctx.beginPath();
-    ctx.arc(
-        0,
-        0,
-        ball.r,
-        0,
-        Math.PI * 2
-    );
+    ctx.arc(0,0,ball.r,0,Math.PI*2);
     ctx.fill();
 
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 3;
-
+    ctx.strokeStyle="white";
+    ctx.lineWidth=3;
     ctx.beginPath();
     ctx.moveTo(0,0);
     ctx.lineTo(ball.r,0);
@@ -396,26 +372,27 @@ function draw(){
 
     ctx.restore();
 
-    ctx.fillStyle = "#ff4444";
-
+    // パドル
+    ctx.fillStyle="#ff4444";
     ctx.fillRect(
-        paddle.x - paddle.w/2,
-        paddle.y - paddle.h/2,
+        paddle.x-paddle.w/2,
+        paddle.y-paddle.h/2,
         paddle.w,
         paddle.h
     );
 }
 
-let prev = performance.now();
+//----------------------
+// ループ
+//----------------------
+let prev=performance.now();
 
-function loop(now){
+function loop(t){
 
-    let dt = (now - prev) / 1000;
-    prev = now;
+    let dt=(t-prev)/1000;
+    prev=t;
 
-    if(dt > 0.03){
-        dt = 0.03;
-    }
+    if(dt>0.03) dt=0.03;
 
     update(dt);
     draw();
