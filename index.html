@@ -2,192 +2,392 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
-<title>Physics Ball</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Physics Ball Enhanced</title>
 
 <style>
 html,body{
     margin:0;
     overflow:hidden;
-    touch-action:none;
     background:#111;
+    touch-action:none;
 }
+
 canvas{
     display:block;
 }
+
+#gyroBtn{
+    position:fixed;
+    top:10px;
+    left:10px;
+    z-index:10;
+    padding:10px 14px;
+    border:none;
+    border-radius:10px;
+    font-size:14px;
+    background:#00aaff;
+    color:white;
+}
 </style>
 </head>
+
 <body>
+
+<button id="gyroBtn">ジャイロ有効化</button>
+<canvas id="c"></canvas>
 
 <script>
 
-const {
-    Engine,
-    Render,
-    Runner,
-    World,
-    Bodies,
-    Body,
-    Events
-} = Matter;
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+const gyroBtn = document.getElementById("gyroBtn");
 
-const engine = Engine.create();
+function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+}
+resize();
+addEventListener("resize",resize);
 
-engine.gravity.y = 0;
+let gravityX = 0;
+let gravityY = 1800;
 
-const width = window.innerWidth;
-const height = window.innerHeight;
+const restitution = 0.88;
+const airDrag = 0.999;
 
-const render = Render.create({
-    element: document.body,
-    engine: engine,
-    options:{
-        width,
-        height,
-        wireframes:false,
-        background:"#111"
+const ball = {
+    x: innerWidth*0.3,
+    y: 100,
+    vx: 350,
+    vy: 0,
+    r: 25,
+    spin: 0,
+    angle: 0
+};
+
+const paddle = {
+    x: innerWidth*0.5,
+    y: innerHeight*0.7,
+    w: 180,
+    h: 35,
+    vx:0,
+    vy:0
+};
+
+const trail = [];
+
+let dragging=false;
+let lastX=0;
+let lastY=0;
+let lastTime=performance.now();
+
+function startDrag(x,y){
+    dragging=true;
+    lastX=x;
+    lastY=y;
+    lastTime=performance.now();
+}
+
+function drag(x,y){
+
+    const now=performance.now();
+    const dt=(now-lastTime)/1000;
+
+    if(dt>0){
+        paddle.vx=(x-lastX)/dt;
+        paddle.vy=(y-lastY)/dt;
+    }
+
+    paddle.x=x;
+    paddle.y=y;
+
+    lastX=x;
+    lastY=y;
+    lastTime=now;
+}
+
+function endDrag(){
+    dragging=false;
+    paddle.vx=0;
+    paddle.vy=0;
+}
+
+canvas.addEventListener("touchstart",e=>{
+    startDrag(
+        e.touches[0].clientX,
+        e.touches[0].clientY
+    );
+});
+
+canvas.addEventListener("touchmove",e=>{
+    drag(
+        e.touches[0].clientX,
+        e.touches[0].clientY
+    );
+});
+
+canvas.addEventListener("touchend",endDrag);
+
+canvas.addEventListener("mousedown",e=>{
+    startDrag(e.clientX,e.clientY);
+});
+
+canvas.addEventListener("mousemove",e=>{
+    if(dragging){
+        drag(e.clientX,e.clientY);
     }
 });
 
-Render.run(render);
+canvas.addEventListener("mouseup",endDrag);
 
-const runner = Runner.create();
-Runner.run(runner, engine);
+gyroBtn.addEventListener("click", async ()=>{
 
-const wallThickness = 100;
+    try{
 
-const walls = [
+        if(
+            typeof DeviceOrientationEvent !== "undefined" &&
+            typeof DeviceOrientationEvent.requestPermission === "function"
+        ){
 
-Bodies.rectangle(
-width/2,
--height/2,
-width,
-wallThickness,
-{isStatic:true,restitution:1}
-),
+            const result =
+                await DeviceOrientationEvent.requestPermission();
 
-Bodies.rectangle(
-width/2,
-height+height/2,
-width,
-wallThickness,
-{isStatic:true,restitution:1}
-),
+            if(result !== "granted"){
+                return;
+            }
+        }
 
-Bodies.rectangle(
--width/2,
-height/2,
-wallThickness,
-height,
-{isStatic:true,restitution:1}
-),
+        window.addEventListener(
+            "deviceorientation",
+            e=>{
 
-Bodies.rectangle(
-width+width/2,
-height/2,
-wallThickness,
-height,
-{isStatic:true,restitution:1}
-)
+                gravityX = (e.gamma || 0) * 35;
+                gravityY = (e.beta || 0) * 35;
 
-];
+            },
+            true
+        );
 
-const ball = Bodies.circle(
-width/2,
-height/2,
-20,
-{
-    restitution:1,
-    friction:0,
-    frictionAir:0,
-    density:0.001,
-    render:{
-        fillStyle:"#00ff88"
+        gyroBtn.style.display="none";
+
+    }catch(err){
+        console.error(err);
+    }
+
+});
+
+function physicsStep(dt){
+
+    ball.vx += gravityX * dt;
+    ball.vy += gravityY * dt;
+
+    ball.vx += ball.spin * 20 * dt;
+
+    ball.spin *= 0.995;
+
+    ball.vx *= airDrag;
+    ball.vy *= airDrag;
+
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+
+    ball.angle += ball.spin * dt;
+
+    if(ball.x-ball.r<0){
+        ball.x=ball.r;
+        ball.vx=Math.abs(ball.vx)*restitution;
+        ball.spin*=-0.9;
+    }
+
+    if(ball.x+ball.r>canvas.width){
+        ball.x=canvas.width-ball.r;
+        ball.vx=-Math.abs(ball.vx)*restitution;
+        ball.spin*=-0.9;
+    }
+
+    if(ball.y-ball.r<0){
+        ball.y=ball.r;
+        ball.vy=Math.abs(ball.vy)*restitution;
+    }
+
+    if(ball.y+ball.r>canvas.height){
+        ball.y=canvas.height-ball.r;
+        ball.vy=-Math.abs(ball.vy)*restitution;
+    }
+
+    const left=paddle.x-paddle.w/2;
+    const right=paddle.x+paddle.w/2;
+    const top=paddle.y-paddle.h/2;
+    const bottom=paddle.y+paddle.h/2;
+
+    const nearestX=Math.max(
+        left,
+        Math.min(ball.x,right)
+    );
+
+    const nearestY=Math.max(
+        top,
+        Math.min(ball.y,bottom)
+    );
+
+    const dx=ball.x-nearestX;
+    const dy=ball.y-nearestY;
+
+    const dist2=dx*dx+dy*dy;
+
+    if(dist2<ball.r*ball.r){
+
+        const dist=Math.sqrt(dist2)||0.0001;
+
+        const nx=dx/dist;
+        const ny=dy/dist;
+
+        const overlap=ball.r-dist;
+
+        ball.x+=nx*overlap;
+        ball.y+=ny*overlap;
+
+        const relvx=ball.vx-paddle.vx;
+        const relvy=ball.vy-paddle.vy;
+
+        const dot=relvx*nx+relvy*ny;
+
+        if(dot<0){
+
+            const impulse=
+                -(1+restitution)*dot;
+
+            ball.vx+=impulse*nx;
+            ball.vy+=impulse*ny;
+
+            ball.vx+=paddle.vx*0.35;
+            ball.vy+=paddle.vy*0.35;
+
+            ball.spin += paddle.vx * 0.02;
+        }
     }
 }
-);
 
-Body.setVelocity(ball,{
-    x:8,
-    y:5
-});
+function update(dt){
 
-const paddle = Bodies.rectangle(
-width/2,
-height-120,
-180,
-20,
-{
-    isStatic:true,
-    restitution:1,
-    friction:0,
-    render:{
-        fillStyle:"#00aaff"
+    trail.push({
+        x:ball.x,
+        y:ball.y
+    });
+
+    if(trail.length>25){
+        trail.shift();
+    }
+
+    const substeps = 4;
+    const stepDt = dt/substeps;
+
+    for(let i=0;i<substeps;i++){
+        physicsStep(stepDt);
     }
 }
-);
 
-World.add(
-engine.world,
-[
-...walls,
-ball,
-paddle
-]
-);
+function draw(){
 
-function movePaddle(x){
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
 
-Body.setPosition(
-paddle,
-{
-x:x,
-y:paddle.position.y
+    for(let i=0;i<trail.length;i++){
+
+        const p=trail[i];
+
+        ctx.globalAlpha=
+            i/trail.length*0.5;
+
+        ctx.fillStyle="#00aaff";
+
+        ctx.beginPath();
+        ctx.arc(
+            p.x,
+            p.y,
+            ball.r,
+            0,
+            Math.PI*2
+        );
+        ctx.fill();
+    }
+
+    ctx.globalAlpha=1;
+
+    ctx.save();
+
+    ctx.translate(
+        ball.x,
+        ball.y
+    );
+
+    ctx.rotate(ball.angle);
+
+    ctx.fillStyle="#00aaff";
+
+    ctx.beginPath();
+    ctx.arc(
+        0,
+        0,
+        ball.r,
+        0,
+        Math.PI*2
+    );
+    ctx.fill();
+
+    ctx.strokeStyle="white";
+    ctx.lineWidth=3;
+
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(ball.r,0);
+    ctx.stroke();
+
+    ctx.restore();
+
+    ctx.fillStyle="#ff4444";
+
+    ctx.fillRect(
+        paddle.x-paddle.w/2,
+        paddle.y-paddle.h/2,
+        paddle.w,
+        paddle.h
+    );
+
+    ctx.fillStyle="white";
+    ctx.font="16px sans-serif";
+
+    ctx.fillText(
+        "Spin: " + ball.spin.toFixed(1),
+        20,
+        canvas.height-20
+    );
 }
-);
 
+let prev=performance.now();
+
+function loop(now){
+
+    let dt=(now-prev)/1000;
+    prev=now;
+
+    if(dt>0.03){
+        dt=0.03;
+    }
+
+    update(dt);
+    draw();
+
+    requestAnimationFrame(loop);
 }
 
-window.addEventListener("touchmove",e=>{
-
-e.preventDefault();
-
-movePaddle(
-e.touches[0].clientX
-);
-
-},{passive:false});
-
-window.addEventListener("mousemove",e=>{
-
-movePaddle(
-e.clientX
-);
-
-});
-
-Events.on(engine,"beforeUpdate",()=>{
-
-const speed = Math.sqrt(
-ball.velocity.x*ball.velocity.x +
-ball.velocity.y*ball.velocity.y
-);
-
-const targetSpeed = 10;
-
-Body.setVelocity(
-ball,
-{
-x: ball.velocity.x/speed*targetSpeed,
-y: ball.velocity.y/speed*targetSpeed
-}
-);
-
-});
+requestAnimationFrame(loop);
 
 </script>
-
 </body>
 </html>
