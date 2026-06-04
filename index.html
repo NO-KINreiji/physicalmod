@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Physics Ball Enhanced</title>
+<title>Physics Ball Motion Control</title>
 
 <style>
 html,body{
@@ -17,47 +17,54 @@ canvas{
     display:block;
 }
 
-#gyroBtn{
+#controls{
     position:fixed;
     top:10px;
     left:10px;
     z-index:10;
+    display:flex;
+    gap:8px;
+}
+
+button{
     padding:10px 14px;
     border:none;
     border-radius:10px;
-    font-size:14px;
     background:#00aaff;
     color:white;
+    font-size:14px;
 }
 </style>
 </head>
 
 <body>
 
-<button id="gyroBtn">ジャイロ有効化</button>
+<div id="controls">
+    <button id="gyroOn">ジャイロON</button>
+    <button id="gyroOff">ジャイロOFF</button>
+</div>
+
 <canvas id="c"></canvas>
 
 <script>
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
-const gyroBtn = document.getElementById("gyroBtn");
 
 function resize(){
     canvas.width = innerWidth;
     canvas.height = innerHeight;
 }
 resize();
-addEventListener("resize",resize);
-
-let gravityX = 0;
-let gravityY = 1800;
+addEventListener("resize", resize);
 
 const restitution = 0.88;
 const airDrag = 0.999;
 
+let motionEnabled = false;
+
 const ball = {
-    x: innerWidth*0.3,
+    x: innerWidth * 0.3,
     y: 100,
     vx: 350,
     vy: 0,
@@ -67,120 +74,155 @@ const ball = {
 };
 
 const paddle = {
-    x: innerWidth*0.5,
-    y: innerHeight*0.7,
+    x: innerWidth * 0.5,
+    y: innerHeight * 0.7,
     w: 180,
     h: 35,
-    vx:0,
-    vy:0
+    vx: 0,
+    vy: 0
 };
 
 const trail = [];
 
-let dragging=false;
-let lastX=0;
-let lastY=0;
-let lastTime=performance.now();
+let dragging = false;
+let lastX = 0;
+let lastY = 0;
+let lastTime = performance.now();
 
-function startDrag(x,y){
-    dragging=true;
-    lastX=x;
-    lastY=y;
-    lastTime=performance.now();
+let motionX = 0;
+let motionY = 0;
+
+function handleMotion(e){
+
+    if(!motionEnabled) return;
+
+    const acc = e.accelerationIncludingGravity;
+
+    if(!acc) return;
+
+    const force = 35;
+
+    motionX += (acc.x || 0) * force;
+    motionY += -(acc.y || 0) * force;
 }
 
-function drag(x,y){
-
-    const now=performance.now();
-    const dt=(now-lastTime)/1000;
-
-    if(dt>0){
-        paddle.vx=(x-lastX)/dt;
-        paddle.vy=(y-lastY)/dt;
-    }
-
-    paddle.x=x;
-    paddle.y=y;
-
-    lastX=x;
-    lastY=y;
-    lastTime=now;
-}
-
-function endDrag(){
-    dragging=false;
-    paddle.vx=0;
-    paddle.vy=0;
-}
-
-canvas.addEventListener("touchstart",e=>{
-    startDrag(
-        e.touches[0].clientX,
-        e.touches[0].clientY
-    );
-});
-
-canvas.addEventListener("touchmove",e=>{
-    drag(
-        e.touches[0].clientX,
-        e.touches[0].clientY
-    );
-});
-
-canvas.addEventListener("touchend",endDrag);
-
-canvas.addEventListener("mousedown",e=>{
-    startDrag(e.clientX,e.clientY);
-});
-
-canvas.addEventListener("mousemove",e=>{
-    if(dragging){
-        drag(e.clientX,e.clientY);
-    }
-});
-
-canvas.addEventListener("mouseup",endDrag);
-
-gyroBtn.addEventListener("click", async ()=>{
+async function enableMotion(){
 
     try{
 
         if(
-            typeof DeviceOrientationEvent !== "undefined" &&
-            typeof DeviceOrientationEvent.requestPermission === "function"
+            typeof DeviceMotionEvent !== "undefined" &&
+            typeof DeviceMotionEvent.requestPermission === "function"
         ){
 
             const result =
-                await DeviceOrientationEvent.requestPermission();
+                await DeviceMotionEvent.requestPermission();
 
             if(result !== "granted"){
                 return;
             }
         }
 
-        window.addEventListener(
-            "deviceorientation",
-            e=>{
-
-                gravityX = (e.gamma || 0) * 35;
-                gravityY = (e.beta || 0) * 35;
-
-            },
-            true
-        );
-
-        gyroBtn.style.display="none";
+        motionEnabled = true;
 
     }catch(err){
         console.error(err);
     }
+}
 
+function disableMotion(){
+
+    motionEnabled = false;
+    motionX = 0;
+    motionY = 0;
+}
+
+document
+.getElementById("gyroOn")
+.addEventListener("click", enableMotion);
+
+document
+.getElementById("gyroOff")
+.addEventListener("click", disableMotion);
+
+window.addEventListener(
+    "devicemotion",
+    handleMotion,
+    true
+);
+
+function startDrag(x,y){
+
+    dragging = true;
+
+    lastX = x;
+    lastY = y;
+    lastTime = performance.now();
+}
+
+function drag(x,y){
+
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
+
+    if(dt > 0){
+
+        paddle.vx = (x - lastX) / dt;
+        paddle.vy = (y - lastY) / dt;
+    }
+
+    paddle.x = x;
+    paddle.y = y;
+
+    lastX = x;
+    lastY = y;
+    lastTime = now;
+}
+
+function endDrag(){
+
+    dragging = false;
+
+    paddle.vx = 0;
+    paddle.vy = 0;
+}
+
+canvas.addEventListener("touchstart", e=>{
+    startDrag(
+        e.touches[0].clientX,
+        e.touches[0].clientY
+    );
 });
+
+canvas.addEventListener("touchmove", e=>{
+    drag(
+        e.touches[0].clientX,
+        e.touches[0].clientY
+    );
+});
+
+canvas.addEventListener("touchend", endDrag);
+
+canvas.addEventListener("mousedown", e=>{
+    startDrag(e.clientX,e.clientY);
+});
+
+canvas.addEventListener("mousemove", e=>{
+
+    if(dragging){
+        drag(e.clientX,e.clientY);
+    }
+});
+
+canvas.addEventListener("mouseup", endDrag);
 
 function physicsStep(dt){
 
-    ball.vx += gravityX * dt;
-    ball.vy += gravityY * dt;
+    ball.vx += motionX * dt;
+    ball.vy += motionY * dt;
+
+    motionX *= 0.92;
+    motionY *= 0.92;
 
     ball.vx += ball.spin * 20 * dt;
 
@@ -194,75 +236,79 @@ function physicsStep(dt){
 
     ball.angle += ball.spin * dt;
 
-    if(ball.x-ball.r<0){
-        ball.x=ball.r;
-        ball.vx=Math.abs(ball.vx)*restitution;
-        ball.spin*=-0.9;
+    if(ball.x - ball.r < 0){
+
+        ball.x = ball.r;
+        ball.vx = Math.abs(ball.vx) * restitution;
+        ball.spin *= -0.9;
     }
 
-    if(ball.x+ball.r>canvas.width){
-        ball.x=canvas.width-ball.r;
-        ball.vx=-Math.abs(ball.vx)*restitution;
-        ball.spin*=-0.9;
+    if(ball.x + ball.r > canvas.width){
+
+        ball.x = canvas.width - ball.r;
+        ball.vx = -Math.abs(ball.vx) * restitution;
+        ball.spin *= -0.9;
     }
 
-    if(ball.y-ball.r<0){
-        ball.y=ball.r;
-        ball.vy=Math.abs(ball.vy)*restitution;
+    if(ball.y - ball.r < 0){
+
+        ball.y = ball.r;
+        ball.vy = Math.abs(ball.vy) * restitution;
     }
 
-    if(ball.y+ball.r>canvas.height){
-        ball.y=canvas.height-ball.r;
-        ball.vy=-Math.abs(ball.vy)*restitution;
+    if(ball.y + ball.r > canvas.height){
+
+        ball.y = canvas.height - ball.r;
+        ball.vy = -Math.abs(ball.vy) * restitution;
     }
 
-    const left=paddle.x-paddle.w/2;
-    const right=paddle.x+paddle.w/2;
-    const top=paddle.y-paddle.h/2;
-    const bottom=paddle.y+paddle.h/2;
+    const left = paddle.x - paddle.w/2;
+    const right = paddle.x + paddle.w/2;
+    const top = paddle.y - paddle.h/2;
+    const bottom = paddle.y + paddle.h/2;
 
-    const nearestX=Math.max(
+    const nearestX = Math.max(
         left,
         Math.min(ball.x,right)
     );
 
-    const nearestY=Math.max(
+    const nearestY = Math.max(
         top,
         Math.min(ball.y,bottom)
     );
 
-    const dx=ball.x-nearestX;
-    const dy=ball.y-nearestY;
+    const dx = ball.x - nearestX;
+    const dy = ball.y - nearestY;
 
-    const dist2=dx*dx+dy*dy;
+    const dist2 = dx*dx + dy*dy;
 
-    if(dist2<ball.r*ball.r){
+    if(dist2 < ball.r*ball.r){
 
-        const dist=Math.sqrt(dist2)||0.0001;
+        const dist = Math.sqrt(dist2) || 0.0001;
 
-        const nx=dx/dist;
-        const ny=dy/dist;
+        const nx = dx / dist;
+        const ny = dy / dist;
 
-        const overlap=ball.r-dist;
+        const overlap = ball.r - dist;
 
-        ball.x+=nx*overlap;
-        ball.y+=ny*overlap;
+        ball.x += nx * overlap;
+        ball.y += ny * overlap;
 
-        const relvx=ball.vx-paddle.vx;
-        const relvy=ball.vy-paddle.vy;
+        const relvx = ball.vx - paddle.vx;
+        const relvy = ball.vy - paddle.vy;
 
-        const dot=relvx*nx+relvy*ny;
+        const dot = relvx*nx + relvy*ny;
 
-        if(dot<0){
+        if(dot < 0){
 
-            const impulse=
-                -(1+restitution)*dot;
+            const impulse =
+                -(1 + restitution) * dot;
 
-            ball.vx+=impulse*nx;
-            ball.vy+=impulse*ny;
+            ball.vx += impulse * nx;
+            ball.vy += impulse * ny;
 
-            ball.vx+=paddle.vx*0.35;
-            ball.vy+=paddle.vy*0.35;
+            ball.vx += paddle.vx * 0.35;
+            ball.vy += paddle.vy * 0.35;
 
             ball.spin += paddle.vx * 0.02;
         }
@@ -272,16 +318,16 @@ function physicsStep(dt){
 function update(dt){
 
     trail.push({
-        x:ball.x,
-        y:ball.y
+        x: ball.x,
+        y: ball.y
     });
 
-    if(trail.length>25){
+    if(trail.length > 8){
         trail.shift();
     }
 
     const substeps = 4;
-    const stepDt = dt/substeps;
+    const stepDt = dt / substeps;
 
     for(let i=0;i<substeps;i++){
         physicsStep(stepDt);
@@ -299,12 +345,12 @@ function draw(){
 
     for(let i=0;i<trail.length;i++){
 
-        const p=trail[i];
+        const p = trail[i];
 
-        ctx.globalAlpha=
-            i/trail.length*0.5;
+        ctx.globalAlpha =
+            (i / trail.length) * 0.12;
 
-        ctx.fillStyle="#00aaff";
+        ctx.fillStyle = "#00aaff";
 
         ctx.beginPath();
         ctx.arc(
@@ -312,12 +358,12 @@ function draw(){
             p.y,
             ball.r,
             0,
-            Math.PI*2
+            Math.PI * 2
         );
         ctx.fill();
     }
 
-    ctx.globalAlpha=1;
+    ctx.globalAlpha = 1;
 
     ctx.save();
 
@@ -328,7 +374,7 @@ function draw(){
 
     ctx.rotate(ball.angle);
 
-    ctx.fillStyle="#00aaff";
+    ctx.fillStyle = "#00aaff";
 
     ctx.beginPath();
     ctx.arc(
@@ -336,12 +382,12 @@ function draw(){
         0,
         ball.r,
         0,
-        Math.PI*2
+        Math.PI * 2
     );
     ctx.fill();
 
-    ctx.strokeStyle="white";
-    ctx.lineWidth=3;
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 3;
 
     ctx.beginPath();
     ctx.moveTo(0,0);
@@ -350,34 +396,25 @@ function draw(){
 
     ctx.restore();
 
-    ctx.fillStyle="#ff4444";
+    ctx.fillStyle = "#ff4444";
 
     ctx.fillRect(
-        paddle.x-paddle.w/2,
-        paddle.y-paddle.h/2,
+        paddle.x - paddle.w/2,
+        paddle.y - paddle.h/2,
         paddle.w,
         paddle.h
     );
-
-    ctx.fillStyle="white";
-    ctx.font="16px sans-serif";
-
-    ctx.fillText(
-        "Spin: " + ball.spin.toFixed(1),
-        20,
-        canvas.height-20
-    );
 }
 
-let prev=performance.now();
+let prev = performance.now();
 
 function loop(now){
 
-    let dt=(now-prev)/1000;
-    prev=now;
+    let dt = (now - prev) / 1000;
+    prev = now;
 
-    if(dt>0.03){
-        dt=0.03;
+    if(dt > 0.03){
+        dt = 0.03;
     }
 
     update(dt);
