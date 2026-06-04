@@ -1,235 +1,330 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta charset="utf-8">
+<meta name="viewport"
+content="width=device-width,initial-scale=1,user-scalable=no">
 
-<title>Planck Physics Demo</title>
+<title>Matter.js Physics</title>
+
+<script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
 
 <style>
 html,body{
-    margin:0;
-    overflow:hidden;
-    background:#111;
-    touch-action:none;
+margin:0;
+overflow:hidden;
+background:#111;
+touch-action:none;
 }
 canvas{
-    display:block;
+display:block;
 }
 </style>
-
-<script src="https://cdn.jsdelivr.net/npm/planck-js@0.3.31/dist/planck.min.js"></script>
-
 </head>
-<body>
 
-<canvas id="canvas"></canvas>
+<body>
 
 <script>
 
-const pl = planck;
+const {
+Engine,
+Render,
+Runner,
+Bodies,
+Body,
+Composite,
+Constraint,
+Mouse,
+MouseConstraint
+} = Matter;
 
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+/* ==========================
+   ENGINE
+========================== */
 
-function resize(){
-    canvas.width = innerWidth;
-    canvas.height = innerHeight;
+const engine = Engine.create({
+gravity:{
+x:0,
+y:1
 }
-resize();
-addEventListener("resize",resize);
-
-const SCALE = 50;
-
-const world = new pl.World({
-    gravity: pl.Vec2(0,20)
 });
 
-function px(v){
-    return v * SCALE;
+engine.positionIterations = 30;
+engine.velocityIterations = 25;
+engine.constraintIterations = 15;
+
+const world = engine.world;
+
+/* ==========================
+   SIZE
+========================== */
+
+const W = window.innerWidth;
+const H = window.innerHeight;
+
+/* ==========================
+   RENDER
+========================== */
+
+const render = Render.create({
+element:document.body,
+engine:engine,
+options:{
+width:W,
+height:H,
+wireframes:false,
+background:"#111"
 }
+});
 
-function m(v){
-    return v / SCALE;
+Render.run(render);
+
+/* ==========================
+   RUNNER
+========================== */
+
+const runner = Runner.create();
+
+Runner.run(runner,engine);
+
+/* ==========================
+   WALLS
+========================== */
+
+const thickness = 100;
+
+const walls = [
+
+Bodies.rectangle(
+W/2,
+-thickness/2,
+W,
+thickness,
+{
+isStatic:true
 }
+),
 
-const W = m(innerWidth);
-const H = m(innerHeight);
+Bodies.rectangle(
+W/2,
+H+thickness/2,
+W,
+thickness,
+{
+isStatic:true
+}
+),
 
-const wall = world.createBody();
+Bodies.rectangle(
+-thickness/2,
+H/2,
+thickness,
+H,
+{
+isStatic:true
+}
+),
 
-wall.createFixture(
-    pl.Edge(pl.Vec2(0,0),pl.Vec2(W,0))
+Bodies.rectangle(
+W+thickness/2,
+H/2,
+thickness,
+H,
+{
+isStatic:true
+}
+)
+
+];
+
+/* ==========================
+   BALL
+========================== */
+
+const ball = Bodies.circle(
+W*0.3,
+120,
+28,
+{
+density:0.002,
+friction:0.01,
+frictionAir:0.0005,
+restitution:0.95,
+
+render:{
+fillStyle:"#2da8ff"
+}
+}
 );
 
-wall.createFixture(
-    pl.Edge(pl.Vec2(0,H),pl.Vec2(W,H))
+/* ==========================
+   PLAYER
+========================== */
+
+const player = Bodies.rectangle(
+W*0.5,
+H*0.7,
+220,
+40,
+{
+density:0.05,
+friction:0.3,
+frictionAir:0.02,
+restitution:0.2,
+
+render:{
+fillStyle:"#ff4444"
+}
+}
 );
 
-wall.createFixture(
-    pl.Edge(pl.Vec2(0,0),pl.Vec2(0,H))
-);
+/* ==========================
+   TOUCH TARGET
+========================== */
 
-wall.createFixture(
-    pl.Edge(pl.Vec2(W,0),pl.Vec2(W,H))
-);
+const target = {
+x:player.position.x,
+y:player.position.y
+};
 
-const ball = world.createDynamicBody({
-    position: pl.Vec2(W*0.3,2),
-    bullet:true
+const dragConstraint = Constraint.create({
+
+pointA:target,
+
+bodyB:player,
+
+stiffness:0.25,
+
+damping:0.12,
+
+length:0
+
 });
 
-ball.createFixture(
-    pl.Circle(0.5),
-    {
-        density:1,
-        restitution:0.95,
-        friction:0.01
-    }
+/* ==========================
+   WORLD
+========================== */
+
+Composite.add(
+world,
+[
+...walls,
+ball,
+player,
+dragConstraint
+]
 );
 
-const paddle = world.createDynamicBody({
-    position: pl.Vec2(W*0.5,H*0.7),
-    fixedRotation:true,
-    bullet:true
-});
+/* ==========================
+   TOUCH
+========================== */
 
-paddle.createFixture(
-    pl.Box(2,0.35),
-    {
-        density:20,
-        restitution:0.9,
-        friction:0.2
-    }
-);
+function setPointer(x,y){
 
-let targetX = W*0.5;
-let targetY = H*0.7;
-let dragging = false;
+target.x = x;
+target.y = y;
 
-function updateTarget(x,y){
-    targetX = m(x);
-    targetY = m(y);
 }
 
-canvas.addEventListener("touchstart",e=>{
-    dragging=true;
-    updateTarget(
-        e.touches[0].clientX,
-        e.touches[0].clientY
-    );
-});
+window.addEventListener(
+"touchstart",
+e=>{
 
-canvas.addEventListener("touchmove",e=>{
-    if(!dragging) return;
+const t=e.touches[0];
 
-    updateTarget(
-        e.touches[0].clientX,
-        e.touches[0].clientY
-    );
-},{passive:false});
+setPointer(
+t.clientX,
+t.clientY
+);
 
-canvas.addEventListener("touchend",()=>{
-    dragging=false;
-});
+},
+{passive:false}
+);
 
-canvas.addEventListener("mousedown",e=>{
-    dragging=true;
-    updateTarget(e.clientX,e.clientY);
-});
+window.addEventListener(
+"touchmove",
+e=>{
 
-canvas.addEventListener("mousemove",e=>{
-    if(!dragging) return;
-    updateTarget(e.clientX,e.clientY);
-});
+const t=e.touches[0];
 
-canvas.addEventListener("mouseup",()=>{
-    dragging=false;
-});
+setPointer(
+t.clientX,
+t.clientY
+);
 
-const physicsHz = 240;
-const dt = 1 / physicsHz;
+},
+{passive:false}
+);
 
-let accumulator = 0;
-let last = performance.now();
+window.addEventListener(
+"mousedown",
+e=>{
 
-function applySpring(){
+setPointer(
+e.clientX,
+e.clientY
+);
 
-    const pos = paddle.getPosition();
-    const vel = paddle.getLinearVelocity();
+}
+);
 
-    const dx = targetX - pos.x;
-    const dy = targetY - pos.y;
+window.addEventListener(
+"mousemove",
+e=>{
 
-    const springK = 300;
-    const damping = 35;
+if(e.buttons!==1)return;
 
-    const fx = dx*springK - vel.x*damping;
-    const fy = dy*springK - vel.y*damping;
+setPointer(
+e.clientX,
+e.clientY
+);
 
-    paddle.applyForceToCenter(
-        pl.Vec2(fx,fy),
-        true
-    );
+}
+);
+
+/* ==========================
+   HIGH PHYSICS UPDATE
+========================== */
+
+let previous = performance.now();
+
+function update(now){
+
+let dt = now - previous;
+
+previous = now;
+
+const fixed = 1000/240;
+
+while(dt > 0){
+
+Engine.update(
+engine,
+Math.min(
+fixed,
+dt
+)
+);
+
+dt -= fixed;
 }
 
-function draw(){
-
-    ctx.clearRect(
-        0,0,
-        canvas.width,
-        canvas.height
-    );
-
-    const bp = ball.getPosition();
-
-    ctx.fillStyle="#00AAFF";
-
-    ctx.beginPath();
-    ctx.arc(
-        px(bp.x),
-        px(bp.y),
-        px(0.5),
-        0,
-        Math.PI*2
-    );
-    ctx.fill();
-
-    const pp = paddle.getPosition();
-
-    ctx.fillStyle="#FF4444";
-
-    ctx.fillRect(
-        px(pp.x)-px(2),
-        px(pp.y)-px(0.35),
-        px(4),
-        px(0.7)
-    );
+requestAnimationFrame(update);
 }
 
-function animate(now){
+requestAnimationFrame(update);
 
-    accumulator += (now-last)/1000;
-    last = now;
+/* ==========================
+   RESIZE
+========================== */
 
-    while(accumulator >= dt){
+window.addEventListener(
+"resize",
+()=>{
 
-        applySpring();
+location.reload();
 
-        world.step(dt);
-
-        accumulator -= dt;
-    }
-
-    draw();
-
-    requestAnimationFrame(
-        animate
-    );
 }
-
-requestAnimationFrame(
-    animate
 );
 
 </script>
