@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Physics Ball Box Gym</title>
+<title>Physics Ball Box Gym - Fixed</title>
 
 <style>
 html, body {
     margin: 0;
     overflow: hidden;
-    background: #1a1a1a; /* 少し明るめのダークにして立体感を出す */
+    background: #1a1a1a;
     touch-action: none;
     font-family: sans-serif;
 }
@@ -18,7 +18,6 @@ canvas {
     display: block;
 }
 
-/* ジャイロボタン */
 #gyroBtn {
     position: fixed;
     top: 20px;
@@ -32,7 +31,6 @@ canvas {
     font-weight: bold;
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     cursor: pointer;
-    transition: background 0.2s;
 }
 #gyroBtn:active {
     background: #0088cc;
@@ -60,26 +58,24 @@ addEventListener("resize", resize);
 //----------------------
 // 箱（画面枠）の設定
 //----------------------
-const boxThickness = 20; // 箱の壁の厚み
+const boxThickness = 20; 
 
 //----------------------
 // 物理パラメータ
 //----------------------
-const defaultGravity = 1600; // ジャイロOFF時の通常重力
-const restitution = 0.85;    // 少しだけ反発を調整
-const airDrag = 0.999;
+const defaultGravity = 1600; // ジャイロOFF時の通常下向き重力
+const restitution = 0.85;    // 跳ね返り係数
+const airDrag = 0.999;       // 空気抵抗
 
 //----------------------
-// ボール
+// ボール（スピン要素を削除）
 //----------------------
 const ball = {
     x: innerWidth * 0.3,
     y: 150,
     vx: 300,
     vy: 0,
-    r: 22,
-    spin: 0,
-    angle: 0
+    r: 22
 };
 
 //----------------------
@@ -98,8 +94,6 @@ const paddle = {
 // ジャイロ・センサー状態
 //----------------------
 let gyroEnabled = false;
-
-// センサーから取得する生の加速度（重力含む）
 let rawAccelX = 0;
 let rawAccelY = 0;
 
@@ -110,8 +104,7 @@ function onMotion(e){
     const a = e.accelerationIncludingGravity;
     if (!a) return;
 
-    // iOSとAndroidで軸の向きが異なる場合があるため、一般的な環境に合わせる調整
-    // 画面の向き（縦持ち）に対して、a.xが横方向、a.yが縦方向の傾きに対応します
+    // 傾けた方向へ素直に動くよう修正
     rawAccelX = a.x || 0;
     rawAccelY = a.y || 0;
 }
@@ -122,7 +115,6 @@ function onMotion(e){
 const btn = document.getElementById("gyroBtn");
 
 async function enableGyro(){
-    // iOS用の権限リクエスト
     if (typeof DeviceMotionEvent !== "undefined" &&
         typeof DeviceMotionEvent.requestPermission === "function") {
         try {
@@ -176,7 +168,6 @@ function drag(x, y){
     const now = performance.now();
     const dt = (now - lastTime) / 1000;
 
-    // 箱の内側にパドルが収まるように制限
     const minX = boxThickness + paddle.w / 2;
     const maxX = canvas.width - boxThickness - paddle.w / 2;
     const minY = boxThickness + paddle.h / 2;
@@ -228,23 +219,16 @@ function physics(dt){
     let gy = defaultGravity;
 
     if (gyroEnabled) {
-        // 端末の傾きから重力ベクトルを計算
-        // 通常、重力加速度は約9.8m/s^2。これを画面内のドット単位の加速度にマッピングします。
-        // デバイスを傾けた方向にボールが落ちるよう、符号を調整（デバイスの軸と画面座標の調整）
+        // 【修正】上下左右が真逆にならないよう符号とマッピングを調整
+        // スマホを右に傾ける（a.xがマイナス）→ 右に落とす
+        // スマホを前に傾ける（a.yがプラス）→ 下に落とす
         gx = -rawAccelX * 180; 
         gy =  rawAccelY * 180;
-
-        // もしスマホを完全に真上（水平）に向けていて、傾きがほぼない場合は
-        // ほんの少し手前側か下側に重力を残すと自然になりますが、ここでは傾きに100%連動させています。
     }
 
     // 重力の適用
     ball.vx += gx * dt;
     ball.vy += gy * dt;
-
-    // スピンによる変化（マグヌス効果風）
-    ball.vx += ball.spin * 15 * dt;
-    ball.spin *= 0.992;
 
     // 空気抵抗
     ball.vx *= airDrag;
@@ -253,9 +237,6 @@ function physics(dt){
     // 移動
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
-
-    // 回転アニメーション用の角度
-    ball.angle += ball.spin * dt;
 
     //--- 壁との衝突（立体的な箱の内壁を基準にする） ---
     const minBallX = boxThickness + ball.r;
@@ -266,22 +247,18 @@ function physics(dt){
     if (ball.x < minBallX) {
         ball.x = minBallX;
         ball.vx = Math.abs(ball.vx) * restitution;
-        ball.spin += ball.vy * 0.05; // 壁との摩擦でスピン
     }
     if (ball.x > maxBallX) {
         ball.x = maxBallX;
         ball.vx = -Math.abs(ball.vx) * restitution;
-        ball.spin -= ball.vy * 0.05;
     }
     if (ball.y < minBallY) {
         ball.y = minBallY;
         ball.vy = Math.abs(ball.vy) * restitution;
-        ball.spin -= ball.vx * 0.05;
     }
     if (ball.y > maxBallY) {
         ball.y = maxBallY;
         ball.vy = -Math.abs(ball.vy) * restitution;
-        ball.spin += ball.vx * 0.05;
     }
 
     //--- パドルとの衝突 ---
@@ -315,10 +292,10 @@ function physics(dt){
             ball.vx += imp * ux;
             ball.vy += imp * uy;
 
+            // パドルの移動速度を少し上乗せ
             ball.vx += paddle.vx * 0.35;
             ball.vy += paddle.vy * 0.35;
-
-            ball.spin += paddle.vx * 0.03; 
+            // スピン（回転）の加算処理は完全に削除しました
         }
     }
 }
@@ -337,11 +314,11 @@ function loop(t){
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. 箱の内側の床（バックグラウンドに少し奥まった影をつける）
+    // 1. 箱の内側の床
     ctx.fillStyle = "#1e1e24";
     ctx.fillRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
 
-    // 内側のシャドウ（立体感を強調）
+    // 内側のシャドウ（立体感）
     ctx.strokeStyle = "rgba(0,0,0,0.5)";
     ctx.lineWidth = 4;
     ctx.strokeRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
@@ -349,32 +326,17 @@ function loop(t){
     // 2. パドルの描画
     ctx.fillStyle = "#ff4444";
     ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, paddle.h);
-    // パドルのハイライト
     ctx.fillStyle = "rgba(255,255,255,0.3)";
     ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, 4);
 
-    // 3. ボールの描画（回転がわかるように線を入れる）
-    ctx.save();
-    ctx.translate(ball.x, ball.y);
-    ctx.rotate(ball.angle);
-    
-    // 本体
+    // 3. ボールの描画（スピンなしのシンプルな球体）
     ctx.fillStyle = "#00aaff";
     ctx.beginPath();
-    ctx.arc(0, 0, ball.r, 0, Math.PI * 2);
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // ボールの模様（回転視認用）
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(-ball.r, 0);
-    ctx.lineTo(ball.r, 0);
-    ctx.stroke();
-    ctx.restore();
-
-    // 4. 外枠の「リアルな箱の壁」を描画（3Dの額縁のような表現）
-    // 上の壁（明るめ）
+    // 4. 外枠の「立体的な箱の壁」
+    // 上の壁（光が当たる面）
     ctx.fillStyle = "#44444a";
     ctx.fillRect(0, 0, canvas.width, boxThickness);
     // 左の壁
@@ -383,7 +345,7 @@ function loop(t){
     // 右の壁
     ctx.fillStyle = "#2a2a2e";
     ctx.fillRect(canvas.width - boxThickness, boxThickness, boxThickness, canvas.height - boxThickness);
-    // 下の壁（影側）
+    // 下の壁（影になる面）
     ctx.fillStyle = "#222226";
     ctx.fillRect(boxThickness, canvas.height - boxThickness, canvas.width - boxThickness*2, boxThickness);
 
