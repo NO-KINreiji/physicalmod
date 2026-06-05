@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Physics Ball Box Gym - Fixed</title>
+<title>Physics Ball Box Gym - Fixed v2</title>
 
 <style>
 html, body {
@@ -68,7 +68,7 @@ const restitution = 0.85;    // 跳ね返り係数
 const airDrag = 0.999;       // 空気抵抗
 
 //----------------------
-// ボール（スピン要素を削除）
+// ボール
 //----------------------
 const ball = {
     x: innerWidth * 0.3,
@@ -104,7 +104,6 @@ function onMotion(e){
     const a = e.accelerationIncludingGravity;
     if (!a) return;
 
-    // 傾けた方向へ素直に動くよう修正
     rawAccelX = a.x || 0;
     rawAccelY = a.y || 0;
 }
@@ -219,11 +218,9 @@ function physics(dt){
     let gy = defaultGravity;
 
     if (gyroEnabled) {
-        // 【修正】上下左右が真逆にならないよう符号とマッピングを調整
-        // スマホを右に傾ける（a.xがマイナス）→ 右に落とす
-        // スマホを前に傾ける（a.yがプラス）→ 下に落とす
-        gx = -rawAccelX * 180; 
-        gy =  rawAccelY * 180;
+        // 【再修正】直感的な傾きと一致するように符号を反転
+        gx = rawAccelX * 180; 
+        gy = -rawAccelY * 180;
     }
 
     // 重力の適用
@@ -238,7 +235,7 @@ function physics(dt){
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
 
-    //--- 壁との衝突（立体的な箱の内壁を基準にする） ---
+    //--- 壁との衝突 ---
     const minBallX = boxThickness + ball.r;
     const maxBallX = canvas.width - boxThickness - ball.r;
     const minBallY = boxThickness + ball.r;
@@ -292,10 +289,8 @@ function physics(dt){
             ball.vx += imp * ux;
             ball.vy += imp * uy;
 
-            // パドルの移動速度を少し上乗せ
             ball.vx += paddle.vx * 0.35;
             ball.vy += paddle.vy * 0.35;
-            // スピン（回転）の加算処理は完全に削除しました
         }
     }
 }
@@ -318,7 +313,7 @@ function loop(t){
     ctx.fillStyle = "#1e1e24";
     ctx.fillRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
 
-    // 内側のシャドウ（立体感）
+    // 内側のシャドウ
     ctx.strokeStyle = "rgba(0,0,0,0.5)";
     ctx.lineWidth = 4;
     ctx.strokeRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
@@ -336,16 +331,12 @@ function loop(t){
     ctx.fill();
 
     // 4. 外枠の「立体的な箱の壁」
-    // 上の壁（光が当たる面）
     ctx.fillStyle = "#44444a";
     ctx.fillRect(0, 0, canvas.width, boxThickness);
-    // 左の壁
     ctx.fillStyle = "#333338";
     ctx.fillRect(0, boxThickness, boxThickness, canvas.height - boxThickness);
-    // 右の壁
     ctx.fillStyle = "#2a2a2e";
     ctx.fillRect(canvas.width - boxThickness, boxThickness, boxThickness, canvas.height - boxThickness);
-    // 下の壁（影になる面）
     ctx.fillStyle = "#222226";
     ctx.fillRect(boxThickness, canvas.height - boxThickness, canvas.width - boxThickness*2, boxThickness);
 
