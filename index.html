@@ -90,6 +90,10 @@ const paddle = {
     vy: 0
 };
 
+// 貫通防止用のパドル前フレーム位置保存用
+let prevPaddleX = paddle.x;
+let prevPaddleY = paddle.y;
+
 //----------------------
 // ジャイロ・センサー状態
 //----------------------
@@ -161,6 +165,8 @@ function startDrag(x, y){
     lastX = x;
     lastY = y;
     lastTime = performance.now();
+    prevPaddleX = paddle.x;
+    prevPaddleY = paddle.y;
 }
 
 function drag(x, y){
@@ -179,6 +185,10 @@ function drag(x, y){
         paddle.vx = (targetX - lastX) / dt;
         paddle.vy = (targetY - lastY) / dt;
     }
+
+    // 移動前に現在の位置を「前回の位置」として退避
+    prevPaddleX = paddle.x;
+    prevPaddleY = paddle.y;
 
     paddle.x = targetX;
     paddle.y = targetY;
@@ -218,7 +228,6 @@ function physics(dt){
     let gy = defaultGravity;
 
     if (gyroEnabled) {
-        // 【再修正】直感的な傾きと一致するように符号を反転
         gx = rawAccelX * 180; 
         gy = -rawAccelY * 180;
     }
@@ -236,7 +245,7 @@ function physics(dt){
     ball.y += ball.vy * dt;
 
     //--- 壁との衝突 ---
-    // 外枠の「描画上の内境界」とぴったり一致するように修正
+    // 外枠の「内側の線（boxThickness）」に完全に一致させる
     const minBallX = boxThickness + ball.r;
     const maxBallX = canvas.width - boxThickness - ball.r;
     const minBallY = boxThickness + ball.r;
@@ -259,13 +268,19 @@ function physics(dt){
         ball.vy = -Math.abs(ball.vy) * restitution;
     }
 
-    //--- パドルとの衝突（連続衝突判定の簡易シミュレーション） ---
-    // 高速でパドルが動いた時のめり込み・貫通を防ぐため、複数回判定と押し出しを行います
-    for (let i = 0; i < 3; i++) {
-        const left = paddle.x - paddle.w / 2;
-        const right = paddle.x + paddle.w / 2;
-        const top = paddle.y - paddle.h / 2;
-        const bottom = paddle.y + paddle.h / 2;
+    //--- パドルとの衝突（貫通対策強化版） ---
+    // 高速ドラッグ時、前フレーム位置（prevPaddle）と現フレーム位置（paddle）の軌跡上で複数サンプルチェック
+    const substeps = 4;
+    for (let s = 0; s <= substeps; s++) {
+        const t = s / substeps;
+        // パドルの時間補間位置
+        const currentPaddleX = prevPaddleX + (paddle.x - prevPaddleX) * t;
+        const currentPaddleY = prevPaddleY + (paddle.y - prevPaddleY) * t;
+
+        const left = currentPaddleX - paddle.w / 2;
+        const right = currentPaddleX + paddle.w / 2;
+        const top = currentPaddleY - paddle.h / 2;
+        const bottom = currentPaddleY + paddle.h / 2;
 
         const nx = Math.max(left, Math.min(ball.x, right));
         const ny = Math.max(top, Math.min(ball.y, bottom));
@@ -280,7 +295,7 @@ function physics(dt){
             const uy = dy / d;
             const overlap = ball.r - d;
 
-            // ボールを外側に押し出す
+            // 衝突位置からボールを即座に押し出す
             ball.x += ux * overlap;
             ball.y += uy * overlap;
 
@@ -293,12 +308,16 @@ function physics(dt){
                 ball.vx += imp * ux;
                 ball.vy += imp * uy;
 
-                // パドルの速度をボールに上乗せ
                 ball.vx += paddle.vx * 0.35;
                 ball.vy += paddle.vy * 0.35;
             }
+            break; // 衝突が検知され解決したら、このフレームのサブステップは終了
         }
     }
+    
+    // 次フレーム用に現在の位置を保存
+    prevPaddleX = paddle.x;
+    prevPaddleY = paddle.y;
 }
 
 //----------------------
@@ -336,15 +355,15 @@ function loop(t){
     ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // 4. 外枠の「立体的な箱の壁」
+    // 4. 外枠の「立体的な箱の壁」の描画位置修正（隙間が出ないように画面端に密着）
     ctx.fillStyle = "#44444a";
-    ctx.fillRect(0, 0, canvas.width, boxThickness);
+    ctx.fillRect(0, 0, canvas.width, boxThickness); // 上壁
     ctx.fillStyle = "#333338";
-    ctx.fillRect(0, boxThickness, boxThickness, canvas.height - boxThickness);
+    ctx.fillRect(0, 0, boxThickness, canvas.height); // 左壁
     ctx.fillStyle = "#2a2a2e";
-    ctx.fillRect(canvas.width - boxThickness, boxThickness, boxThickness, canvas.height - boxThickness);
+    ctx.fillRect(canvas.width - boxThickness, 0, boxThickness, canvas.height); // 右壁
     ctx.fillStyle = "#222226";
-    ctx.fillRect(boxThickness, canvas.height - boxThickness, canvas.width - boxThickness*2, boxThickness);
+    ctx.fillRect(0, canvas.height - boxThickness, canvas.width, boxThickness); // 下壁
 
     requestAnimationFrame(loop);
 }
