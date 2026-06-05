@@ -2,12 +2,15 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Physics Ball Box Gym - Fixed v2</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Physics Ball Box Gym - Fixed v3</title>
 
 <style>
 html, body {
     margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     background: #1a1a1a;
     touch-action: none;
@@ -16,6 +19,11 @@ html, body {
 
 canvas {
     display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
 }
 
 #gyroBtn {
@@ -31,6 +39,8 @@ canvas {
     font-weight: bold;
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
 }
 #gyroBtn:active {
     background: #0088cc;
@@ -49,11 +59,11 @@ const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 
 function resize(){
-    canvas.width = innerWidth;
-    canvas.height = innerHeight;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 }
 resize();
-addEventListener("resize", resize);
+window.addEventListener("resize", resize);
 
 //----------------------
 // 箱（画面枠）の設定
@@ -71,7 +81,7 @@ const airDrag = 0.999;       // 空気抵抗
 // ボール
 //----------------------
 const ball = {
-    x: innerWidth * 0.3,
+    x: window.innerWidth * 0.3,
     y: 150,
     vx: 300,
     vy: 0,
@@ -82,8 +92,8 @@ const ball = {
 // パドル
 //----------------------
 const paddle = {
-    x: innerWidth * 0.5,
-    y: innerHeight * 0.7,
+    x: window.innerWidth * 0.5,
+    y: window.innerHeight * 0.7,
     w: 160,
     h: 30,
     vx: 0,
@@ -176,6 +186,7 @@ function drag(x, y){
     const targetY = Math.max(minY, Math.min(y, maxY));
 
     if(dt > 0){
+        // パドルの速度計算
         paddle.vx = (targetX - lastX) / dt;
         paddle.vy = (targetY - lastY) / dt;
     }
@@ -198,8 +209,9 @@ canvas.addEventListener("touchstart", e => {
     startDrag(e.touches[0].clientX, e.touches[0].clientY);
 });
 canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
     drag(e.touches[0].clientX, e.touches[0].clientY);
-});
+}, { passive: false });
 canvas.addEventListener("touchend", endDrag);
 
 canvas.addEventListener("mousedown", e => {
@@ -211,86 +223,96 @@ canvas.addEventListener("mousemove", e => {
 canvas.addEventListener("mouseup", endDrag);
 
 //----------------------
-// 物理演算
+// 物理演算（サブステップ処理で貫通を防止）
 //----------------------
-function physics(dt){
+function physics(totalDt){
+    // 1フレームの時間を10分割して計算（高速移動時の貫通を防ぐため）
+    const substeps = 10;
+    const dt = totalDt / substeps;
+
     let gx = 0;
     let gy = defaultGravity;
 
     if (gyroEnabled) {
-        // 【再修正】直感的な傾きと一致するように符号を反転
         gx = rawAccelX * 180; 
         gy = -rawAccelY * 180;
     }
 
-    // 重力の適用
-    ball.vx += gx * dt;
-    ball.vy += gy * dt;
+    for (let step = 0; step < substeps; step++) {
+        // 重力の適用
+        ball.vx += gx * dt;
+        ball.vy += gy * dt;
 
-    // 空気抵抗
-    ball.vx *= airDrag;
-    ball.vy *= airDrag;
+        // 空気抵抗
+        ball.vx *= Math.pow(airDrag, dt);
+        ball.vy *= Math.pow(airDrag, dt);
 
-    // 移動
-    ball.x += ball.vx * dt;
-    ball.y += ball.vy * dt;
+        // 移動
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
 
-    //--- 壁との衝突 ---
-    const minBallX = boxThickness + ball.r;
-    const maxBallX = canvas.width - boxThickness - ball.r;
-    const minBallY = boxThickness + ball.r;
-    const maxBallY = canvas.height - boxThickness - ball.r;
+        //--- 壁との衝突判定と位置補正 ---
+        const minBallX = boxThickness + ball.r;
+        const maxBallX = canvas.width - boxThickness - ball.r;
+        const minBallY = boxThickness + ball.r;
+        const maxBallY = canvas.height - boxThickness - ball.r;
 
-    if (ball.x < minBallX) {
-        ball.x = minBallX;
-        ball.vx = Math.abs(ball.vx) * restitution;
-    }
-    if (ball.x > maxBallX) {
-        ball.x = maxBallX;
-        ball.vx = -Math.abs(ball.vx) * restitution;
-    }
-    if (ball.y < minBallY) {
-        ball.y = minBallY;
-        ball.vy = Math.abs(ball.vy) * restitution;
-    }
-    if (ball.y > maxBallY) {
-        ball.y = maxBallY;
-        ball.vy = -Math.abs(ball.vy) * restitution;
-    }
+        if (ball.x < minBallX) {
+            ball.x = minBallX;
+            ball.vx = Math.abs(ball.vx) * restitution;
+        }
+        if (ball.x > maxBallX) {
+            ball.x = maxBallX;
+            ball.vx = -Math.abs(ball.vx) * restitution;
+        }
+        if (ball.y < minBallY) {
+            ball.y = minBallY;
+            ball.vy = Math.abs(ball.vy) * restitution;
+        }
+        if (ball.y > maxBallY) {
+            ball.y = maxBallY;
+            ball.vy = -Math.abs(ball.vy) * restitution;
+        }
 
-    //--- パドルとの衝突 ---
-    const left = paddle.x - paddle.w / 2;
-    const right = paddle.x + paddle.w / 2;
-    const top = paddle.y - paddle.h / 2;
-    const bottom = paddle.y + paddle.h / 2;
+        //--- パドルとの衝突判定 ---
+        const left = paddle.x - paddle.w / 2;
+        const right = paddle.x + paddle.w / 2;
+        const top = paddle.y - paddle.h / 2;
+        const bottom = paddle.y + paddle.h / 2;
 
-    const nx = Math.max(left, Math.min(ball.x, right));
-    const ny = Math.max(top, Math.min(ball.y, bottom));
+        // ボールに最も近いパドル上の点(nx, ny)を求める
+        const nx = Math.max(left, Math.min(ball.x, right));
+        const ny = Math.max(top, Math.min(ball.y, bottom));
 
-    const dx = ball.x - nx;
-    const dy = ball.y - ny;
-    const d2 = dx * dx + dy * dy;
+        const dx = ball.x - nx;
+        const dy = ball.y - ny;
+        const d2 = dx * dx + dy * dy;
 
-    if (d2 < ball.r * ball.r) {
-        const d = Math.sqrt(d2) || 0.0001;
-        const ux = dx / d;
-        const uy = dy / d;
-        const overlap = ball.r - d;
+        if (d2 < ball.r * ball.r) {
+            const d = Math.sqrt(d2) || 0.0001;
+            const ux = dx / d;
+            const uy = dy / d;
+            const overlap = ball.r - d;
 
-        ball.x += ux * overlap;
-        ball.y += uy * overlap;
+            // めり込みを完全に押し出す（位置補正）
+            ball.x += ux * overlap;
+            ball.y += uy * overlap;
 
-        const rvx = ball.vx - paddle.vx;
-        const rvy = ball.vy - paddle.vy;
-        const dot = rvx * ux + rvy * uy;
+            // パドルとボールの相対速度
+            const rvx = ball.vx - paddle.vx;
+            const rvy = ball.vy - paddle.vy;
+            const dot = rvx * ux + rvy * uy;
 
-        if (dot < 0) {
-            const imp = -(1 + restitution) * dot;
-            ball.vx += imp * ux;
-            ball.vy += imp * uy;
+            // ボールがパドルに向かって進んでいる場合のみ跳ね返す
+            if (dot < 0) {
+                const imp = -(1 + restitution) * dot;
+                ball.vx += imp * ux;
+                ball.vy += imp * uy;
 
-            ball.vx += paddle.vx * 0.35;
-            ball.vy += paddle.vy * 0.35;
+                // パドルの運動量を上乗せ
+                ball.vx += paddle.vx * 0.35;
+                ball.vy += paddle.vy * 0.35;
+            }
         }
     }
 }
@@ -303,7 +325,7 @@ let prev = performance.now();
 function loop(t){
     let dt = (t - prev) / 1000;
     prev = t;
-    if (dt > 0.03) dt = 0.03;
+    if (dt > 0.03) dt = 0.03; // ラグ発生時のジャンプ防止
 
     physics(dt);
 
@@ -313,8 +335,8 @@ function loop(t){
     ctx.fillStyle = "#1e1e24";
     ctx.fillRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
 
-    // 内側のシャドウ
-    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    // 内側のシャドウ効果
+    ctx.strokeStyle = "rgba(0,0,0,0.4)";
     ctx.lineWidth = 4;
     ctx.strokeRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
 
@@ -324,21 +346,25 @@ function loop(t){
     ctx.fillStyle = "rgba(255,255,255,0.3)";
     ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, 4);
 
-    // 3. ボールの描画（スピンなしのシンプルな球体）
+    // 3. ボールの描画
     ctx.fillStyle = "#00aaff";
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // 4. 外枠の「立体的な箱の壁」
+    // 4. 外枠の「立体的な箱の壁」（隙間が出ないようにサイズをぴったり結合）
+    // 上の壁
     ctx.fillStyle = "#44444a";
     ctx.fillRect(0, 0, canvas.width, boxThickness);
+    // 左の壁
     ctx.fillStyle = "#333338";
-    ctx.fillRect(0, boxThickness, boxThickness, canvas.height - boxThickness);
+    ctx.fillRect(0, boxThickness, boxThickness, canvas.height - boxThickness * 2);
+    // 右の壁
     ctx.fillStyle = "#2a2a2e";
-    ctx.fillRect(canvas.width - boxThickness, boxThickness, boxThickness, canvas.height - boxThickness);
+    ctx.fillRect(canvas.width - boxThickness, boxThickness, boxThickness, canvas.height - boxThickness * 2);
+    // 下の壁
     ctx.fillStyle = "#222226";
-    ctx.fillRect(boxThickness, canvas.height - boxThickness, canvas.width - boxThickness*2, boxThickness);
+    ctx.fillRect(0, canvas.height - boxThickness, canvas.width, boxThickness);
 
     requestAnimationFrame(loop);
 }
