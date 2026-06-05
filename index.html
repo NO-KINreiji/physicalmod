@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Physics Ball Box Gym - Fixed v3</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+<title>Physics Ball Box Gym - Fixed v4</title>
 
 <style>
 html, body {
@@ -13,7 +13,7 @@ html, body {
     height: 100%;
     overflow: hidden;
     background: #1a1a1a;
-    touch-action: none;
+    touch-action: none; /* スクロールやピンチズームを完全禁止 */
     font-family: sans-serif;
 }
 
@@ -59,6 +59,7 @@ const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 
 function resize(){
+    // 確実に画面全体のピクセルサイズに合わせる
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 }
@@ -73,9 +74,9 @@ const boxThickness = 20;
 //----------------------
 // 物理パラメータ
 //----------------------
-const defaultGravity = 1600; // ジャイロOFF時の通常下向き重力
-const restitution = 0.85;    // 跳ね返り係数
-const airDrag = 0.999;       // 空気抵抗
+const defaultGravity = 1600; 
+const restitution = 0.85;    
+const airDrag = 0.999;       
 
 //----------------------
 // ボール
@@ -107,20 +108,13 @@ let gyroEnabled = false;
 let rawAccelX = 0;
 let rawAccelY = 0;
 
-//----------------------
-// イベントハンドラ
-//----------------------
 function onMotion(e){
     const a = e.accelerationIncludingGravity;
     if (!a) return;
-
     rawAccelX = a.x || 0;
     rawAccelY = a.y || 0;
 }
 
-//----------------------
-// ジャイロON/OFF
-//----------------------
 const btn = document.getElementById("gyroBtn");
 
 async function enableGyro(){
@@ -136,7 +130,6 @@ async function enableGyro(){
             console.error(err);
         }
     }
-
     window.addEventListener("devicemotion", onMotion);
     gyroEnabled = true;
     btn.textContent = "ジャイロ OFF";
@@ -186,7 +179,6 @@ function drag(x, y){
     const targetY = Math.max(minY, Math.min(y, maxY));
 
     if(dt > 0){
-        // パドルの速度計算
         paddle.vx = (targetX - lastX) / dt;
         paddle.vy = (targetY - lastY) / dt;
     }
@@ -223,11 +215,11 @@ canvas.addEventListener("mousemove", e => {
 canvas.addEventListener("mouseup", endDrag);
 
 //----------------------
-// 物理演算（サブステップ処理で貫通を防止）
+// 物理演算（さらに分割数を上げ、めり込み対策を強化）
 //----------------------
 function physics(totalDt){
-    // 1フレームの時間を10分割して計算（高速移動時の貫通を防ぐため）
-    const substeps = 10;
+    // 分割数を16に増やして、より高速な動きに対応
+    const substeps = 16;
     const dt = totalDt / substeps;
 
     let gx = 0;
@@ -239,48 +231,33 @@ function physics(totalDt){
     }
 
     for (let step = 0; step < substeps; step++) {
-        // 重力の適用
         ball.vx += gx * dt;
         ball.vy += gy * dt;
 
-        // 空気抵抗
         ball.vx *= Math.pow(airDrag, dt);
         ball.vy *= Math.pow(airDrag, dt);
 
-        // 移動
         ball.x += ball.vx * dt;
         ball.y += ball.vy * dt;
 
-        //--- 壁との衝突判定と位置補正 ---
+        //--- 1. 壁との衝突（絶対に外に出さない） ---
         const minBallX = boxThickness + ball.r;
         const maxBallX = canvas.width - boxThickness - ball.r;
         const minBallY = boxThickness + ball.r;
         const maxBallY = canvas.height - boxThickness - ball.r;
 
-        if (ball.x < minBallX) {
-            ball.x = minBallX;
-            ball.vx = Math.abs(ball.vx) * restitution;
-        }
-        if (ball.x > maxBallX) {
-            ball.x = maxBallX;
-            ball.vx = -Math.abs(ball.vx) * restitution;
-        }
-        if (ball.y < minBallY) {
-            ball.y = minBallY;
-            ball.vy = Math.abs(ball.vy) * restitution;
-        }
-        if (ball.y > maxBallY) {
-            ball.y = maxBallY;
-            ball.vy = -Math.abs(ball.vy) * restitution;
-        }
+        if (ball.x < minBallX) { ball.x = minBallX; ball.vx = Math.abs(ball.vx) * restitution; }
+        if (ball.x > maxBallX) { ball.x = maxBallX; ball.vx = -Math.abs(ball.vx) * restitution; }
+        if (ball.y < minBallY) { ball.y = minBallY; ball.vy = Math.abs(ball.vy) * restitution; }
+        if (ball.y > maxBallY) { ball.y = maxBallY; ball.vy = -Math.abs(ball.vy) * restitution; }
 
-        //--- パドルとの衝突判定 ---
+        //--- 2. パドルとの衝突（めり込み完全排除） ---
         const left = paddle.x - paddle.w / 2;
         const right = paddle.x + paddle.w / 2;
         const top = paddle.y - paddle.h / 2;
         const bottom = paddle.y + paddle.h / 2;
 
-        // ボールに最も近いパドル上の点(nx, ny)を求める
+        // ボールから一番近いパドル上の点
         const nx = Math.max(left, Math.min(ball.x, right));
         const ny = Math.max(top, Math.min(ball.y, bottom));
 
@@ -289,29 +266,36 @@ function physics(totalDt){
         const d2 = dx * dx + dy * dy;
 
         if (d2 < ball.r * ball.r) {
-            const d = Math.sqrt(d2) || 0.0001;
-            const ux = dx / d;
-            const uy = dy / d;
+            let d = Math.sqrt(d2);
+            
+            // 万が一完全に中心が重なってしまった場合の安全策
+            let ux = d > 0 ? dx / d : 0;
+            let uy = d > 0 ? dy / d : -1; 
+            if(d === 0) d = 0.0001;
+
             const overlap = ball.r - d;
 
-            // めり込みを完全に押し出す（位置補正）
+            // 1. まず重なった分を完全に押し出す
             ball.x += ux * overlap;
             ball.y += uy * overlap;
 
-            // パドルとボールの相対速度
+            // 2. パドルが動いている場合は、パドルの速度分も強制的に押し出す
+            ball.x += paddle.vx * dt;
+            ball.y += paddle.vy * dt;
+
+            // 3. 反発処理
             const rvx = ball.vx - paddle.vx;
             const rvy = ball.vy - paddle.vy;
             const dot = rvx * ux + rvy * uy;
 
-            // ボールがパドルに向かって進んでいる場合のみ跳ね返す
             if (dot < 0) {
                 const imp = -(1 + restitution) * dot;
                 ball.vx += imp * ux;
                 ball.vy += imp * uy;
 
-                // パドルの運動量を上乗せ
-                ball.vx += paddle.vx * 0.35;
-                ball.vy += paddle.vy * 0.35;
+                // 摩擦効果（パドルの横振りをボールに伝える）
+                ball.vx += paddle.vx * 0.4;
+                ball.vy += paddle.vy * 0.4;
             }
         }
     }
@@ -325,45 +309,44 @@ let prev = performance.now();
 function loop(t){
     let dt = (t - prev) / 1000;
     prev = t;
-    if (dt > 0.03) dt = 0.03; // ラグ発生時のジャンプ防止
+    if (dt > 0.03) dt = 0.03; 
 
     physics(dt);
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. 箱の内側の床
+    // 1. 背景（床）
     ctx.fillStyle = "#1e1e24";
     ctx.fillRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
 
-    // 内側のシャドウ効果
+    // 内側の影
     ctx.strokeStyle = "rgba(0,0,0,0.4)";
     ctx.lineWidth = 4;
     ctx.strokeRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
 
-    // 2. パドルの描画
+    // 2. パドル
     ctx.fillStyle = "#ff4444";
     ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, paddle.h);
     ctx.fillStyle = "rgba(255,255,255,0.3)";
     ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, 4);
 
-    // 3. ボールの描画
+    // 3. ボール
     ctx.fillStyle = "#00aaff";
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // 4. 外枠の「立体的な箱の壁」（隙間が出ないようにサイズをぴったり結合）
-    // 上の壁
-    ctx.fillStyle = "#44444a";
+    // 4. 外枠の壁（1ピクセルの隙間も出さないよう、完全に重ね合わせて描画）
+    ctx.fillStyle = "#44444a"; // 上
     ctx.fillRect(0, 0, canvas.width, boxThickness);
-    // 左の壁
-    ctx.fillStyle = "#333338";
-    ctx.fillRect(0, boxThickness, boxThickness, canvas.height - boxThickness * 2);
-    // 右の壁
-    ctx.fillStyle = "#2a2a2e";
-    ctx.fillRect(canvas.width - boxThickness, boxThickness, boxThickness, canvas.height - boxThickness * 2);
-    // 下の壁
-    ctx.fillStyle = "#222226";
+    
+    ctx.fillStyle = "#333338"; // 左
+    ctx.fillRect(0, 0, boxThickness, canvas.height);
+    
+    ctx.fillStyle = "#2a2a2e"; // 右
+    ctx.fillRect(canvas.width - boxThickness, 0, boxThickness, canvas.height);
+    
+    ctx.fillStyle = "#222226"; // 下
     ctx.fillRect(0, canvas.height - boxThickness, canvas.width, boxThickness);
 
     requestAnimationFrame(loop);
