@@ -2,38 +2,44 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Real Ball Box</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Physics Ball Box Gym</title>
 
 <style>
-html,body{
-    margin:0;
-    overflow:hidden;
-    background:#111;
-    touch-action:none;
+html, body {
+    margin: 0;
+    overflow: hidden;
+    background: #1a1a1a; /* 少し明るめのダークにして立体感を出す */
+    touch-action: none;
+    font-family: sans-serif;
 }
 
-canvas{
-    display:block;
+canvas {
+    display: block;
 }
 
-#gyroBtn{
-    position:fixed;
-    top:12px;
-    right:12px;
-    z-index:10;
-
-    border:none;
-    border-radius:10px;
-
-    padding:12px 16px;
-
-    background:#00aaff;
-    color:white;
-    font-weight:bold;
+/* ジャイロボタン */
+#gyroBtn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10;
+    padding: 12px 18px;
+    border: none;
+    border-radius: 25px;
+    background: #00aaff;
+    color: #fff;
+    font-weight: bold;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+#gyroBtn:active {
+    background: #0088cc;
 }
 </style>
 </head>
+
 <body>
 
 <button id="gyroBtn">ジャイロ ON</button>
@@ -49,383 +55,342 @@ function resize(){
     canvas.height = innerHeight;
 }
 resize();
-addEventListener("resize",resize);
+addEventListener("resize", resize);
 
-// =====================================
+//----------------------
+// 箱（画面枠）の設定
+//----------------------
+const boxThickness = 20; // 箱の壁の厚み
+
+//----------------------
+// 物理パラメータ
+//----------------------
+const defaultGravity = 1600; // ジャイロOFF時の通常重力
+const restitution = 0.85;    // 少しだけ反発を調整
+const airDrag = 0.999;
+
+//----------------------
 // ボール
-// =====================================
-
+//----------------------
 const ball = {
-    x: innerWidth*0.5,
-    y: innerHeight*0.4,
-
-    vx:0,
-    vy:0,
-
-    r:28,
-
-    angle:0,
-    spin:0
+    x: innerWidth * 0.3,
+    y: 150,
+    vx: 300,
+    vy: 0,
+    r: 22,
+    spin: 0,
+    angle: 0
 };
 
-// =====================================
-// センサー
-// =====================================
+//----------------------
+// パドル
+//----------------------
+const paddle = {
+    x: innerWidth * 0.5,
+    y: innerHeight * 0.7,
+    w: 160,
+    h: 30,
+    vx: 0,
+    vy: 0
+};
 
+//----------------------
+// ジャイロ・センサー状態
+//----------------------
 let gyroEnabled = false;
 
-let gravityX = 0;
-let gravityY = 0;
+// センサーから取得する生の加速度（重力含む）
+let rawAccelX = 0;
+let rawAccelY = 0;
 
-let accelX = 0;
-let accelY = 0;
-
-// =====================================
-// 設定
-// =====================================
-
-const G = 2200;
-
-const WALL_RESTITUTION = 0.92;
-
-const ROLL_FRICTION = 0.998;
-
-const INERTIA_SCALE = 250;
-
-// =====================================
-// ジャイロ
-// =====================================
-
-function onOrientation(e){
-
-    const beta =
-        (e.beta || 0) * Math.PI/180;
-
-    const gamma =
-        (e.gamma || 0) * Math.PI/180;
-
-    const targetGX =
-        Math.sin(gamma) * G;
-
-    const targetGY =
-        Math.sin(beta) * G;
-
-    gravityX =
-        gravityX*0.92 +
-        targetGX*0.08;
-
-    gravityY =
-        gravityY*0.92 +
-        targetGY*0.08;
-}
-
+//----------------------
+// イベントハンドラ
+//----------------------
 function onMotion(e){
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
 
-    const a = e.acceleration;
-
-    if(!a) return;
-
-    accelX =
-        accelX*0.85 +
-        (a.x||0)*0.15;
-
-    accelY =
-        accelY*0.85 +
-        (a.y||0)*0.15;
+    // iOSとAndroidで軸の向きが異なる場合があるため、一般的な環境に合わせる調整
+    // 画面の向き（縦持ち）に対して、a.xが横方向、a.yが縦方向の傾きに対応します
+    rawAccelX = a.x || 0;
+    rawAccelY = a.y || 0;
 }
 
-const btn =
-document.getElementById("gyroBtn");
+//----------------------
+// ジャイロON/OFF
+//----------------------
+const btn = document.getElementById("gyroBtn");
 
 async function enableGyro(){
-
-    try{
-
-        if(
-            typeof DeviceMotionEvent !== "undefined" &&
-            typeof DeviceMotionEvent.requestPermission === "function"
-        ){
-
-            await DeviceMotionEvent.requestPermission();
-
-            if(
-                typeof DeviceOrientationEvent !== "undefined" &&
-                typeof DeviceOrientationEvent.requestPermission === "function"
-            ){
-                await DeviceOrientationEvent.requestPermission();
+    // iOS用の権限リクエスト
+    if (typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function") {
+        try {
+            const res = await DeviceMotionEvent.requestPermission();
+            if (res !== 'granted') {
+                alert("センサーのアクセスが拒否されました");
+                return;
             }
+        } catch(err) {
+            console.error(err);
         }
-
-    }catch(err){
-        console.log(err);
     }
 
-    addEventListener(
-        "deviceorientation",
-        onOrientation
-    );
-
-    addEventListener(
-        "devicemotion",
-        onMotion
-    );
-
+    window.addEventListener("devicemotion", onMotion);
     gyroEnabled = true;
-
-    btn.textContent =
-        "ジャイロ OFF";
+    btn.textContent = "ジャイロ OFF";
 }
 
 function disableGyro(){
-
-    removeEventListener(
-        "deviceorientation",
-        onOrientation
-    );
-
-    removeEventListener(
-        "devicemotion",
-        onMotion
-    );
-
-    gravityX = 0;
-    gravityY = 0;
-
-    accelX = 0;
-    accelY = 0;
-
+    window.removeEventListener("devicemotion", onMotion);
     gyroEnabled = false;
-
-    btn.textContent =
-        "ジャイロ ON";
+    rawAccelX = 0;
+    rawAccelY = 0;
+    btn.textContent = "ジャイロ ON";
 }
 
-btn.addEventListener(
-"click",
-async ()=>{
-    if(!gyroEnabled){
+btn.addEventListener("click", async () => {
+    if (!gyroEnabled) {
         await enableGyro();
-    }else{
+    } else {
         disableGyro();
     }
+});
+
+//----------------------
+// パドル操作（ドラッグ）
+//----------------------
+let dragging = false;
+let lastX = 0;
+let lastY = 0;
+let lastTime = performance.now();
+
+function startDrag(x, y){
+    dragging = true;
+    lastX = x;
+    lastY = y;
+    lastTime = performance.now();
 }
-);
 
-// =====================================
-// 物理
-// =====================================
+function drag(x, y){
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
 
+    // 箱の内側にパドルが収まるように制限
+    const minX = boxThickness + paddle.w / 2;
+    const maxX = canvas.width - boxThickness - paddle.w / 2;
+    const minY = boxThickness + paddle.h / 2;
+    const maxY = canvas.height - boxThickness - paddle.h / 2;
+
+    const targetX = Math.max(minX, Math.min(x, maxX));
+    const targetY = Math.max(minY, Math.min(y, maxY));
+
+    if(dt > 0){
+        paddle.vx = (targetX - lastX) / dt;
+        paddle.vy = (targetY - lastY) / dt;
+    }
+
+    paddle.x = targetX;
+    paddle.y = targetY;
+
+    lastX = targetX;
+    lastY = targetY;
+    lastTime = now;
+}
+
+function endDrag(){
+    dragging = false;
+    paddle.vx = 0;
+    paddle.vy = 0;
+}
+
+canvas.addEventListener("touchstart", e => {
+    startDrag(e.touches[0].clientX, e.touches[0].clientY);
+});
+canvas.addEventListener("touchmove", e => {
+    drag(e.touches[0].clientX, e.touches[0].clientY);
+});
+canvas.addEventListener("touchend", endDrag);
+
+canvas.addEventListener("mousedown", e => {
+    startDrag(e.clientX, e.clientY);
+});
+canvas.addEventListener("mousemove", e => {
+    if(dragging) drag(e.clientX, e.clientY);
+});
+canvas.addEventListener("mouseup", endDrag);
+
+//----------------------
+// 物理演算
+//----------------------
 function physics(dt){
+    let gx = 0;
+    let gy = defaultGravity;
 
-    // 重力
-    ball.vx += gravityX * dt;
-    ball.vy += gravityY * dt;
+    if (gyroEnabled) {
+        // 端末の傾きから重力ベクトルを計算
+        // 通常、重力加速度は約9.8m/s^2。これを画面内のドット単位の加速度にマッピングします。
+        // デバイスを傾けた方向にボールが落ちるよう、符号を調整（デバイスの軸と画面座標の調整）
+        gx = -rawAccelX * 180; 
+        gy =  rawAccelY * 180;
 
-    // 慣性
-    ball.vx -= accelX * INERTIA_SCALE * dt;
-    ball.vy += accelY * INERTIA_SCALE * dt;
+        // もしスマホを完全に真上（水平）に向けていて、傾きがほぼない場合は
+        // ほんの少し手前側か下側に重力を残すと自然になりますが、ここでは傾きに100%連動させています。
+    }
 
-    // 摩擦
-    ball.vx *= ROLL_FRICTION;
-    ball.vy *= ROLL_FRICTION;
+    // 重力の適用
+    ball.vx += gx * dt;
+    ball.vy += gy * dt;
 
+    // スピンによる変化（マグヌス効果風）
+    ball.vx += ball.spin * 15 * dt;
+    ball.spin *= 0.992;
+
+    // 空気抵抗
+    ball.vx *= airDrag;
+    ball.vy *= airDrag;
+
+    // 移動
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
 
-    // 回転
-    const speed =
-        Math.hypot(ball.vx,ball.vy);
+    // 回転アニメーション用の角度
+    ball.angle += ball.spin * dt;
 
-    ball.spin =
-        speed / ball.r;
+    //--- 壁との衝突（立体的な箱の内壁を基準にする） ---
+    const minBallX = boxThickness + ball.r;
+    const maxBallX = canvas.width - boxThickness - ball.r;
+    const minBallY = boxThickness + ball.r;
+    const maxBallY = canvas.height - boxThickness - ball.r;
 
-    ball.angle +=
-        ball.spin * dt;
-
-    // 左壁
-
-    if(ball.x-ball.r < 0){
-
-        ball.x = ball.r;
-
-        ball.vx =
-            Math.abs(ball.vx)
-            * WALL_RESTITUTION;
-
-        ball.spin +=
-            ball.vy * 0.02;
+    if (ball.x < minBallX) {
+        ball.x = minBallX;
+        ball.vx = Math.abs(ball.vx) * restitution;
+        ball.spin += ball.vy * 0.05; // 壁との摩擦でスピン
+    }
+    if (ball.x > maxBallX) {
+        ball.x = maxBallX;
+        ball.vx = -Math.abs(ball.vx) * restitution;
+        ball.spin -= ball.vy * 0.05;
+    }
+    if (ball.y < minBallY) {
+        ball.y = minBallY;
+        ball.vy = Math.abs(ball.vy) * restitution;
+        ball.spin -= ball.vx * 0.05;
+    }
+    if (ball.y > maxBallY) {
+        ball.y = maxBallY;
+        ball.vy = -Math.abs(ball.vy) * restitution;
+        ball.spin += ball.vx * 0.05;
     }
 
-    // 右壁
+    //--- パドルとの衝突 ---
+    const left = paddle.x - paddle.w / 2;
+    const right = paddle.x + paddle.w / 2;
+    const top = paddle.y - paddle.h / 2;
+    const bottom = paddle.y + paddle.h / 2;
 
-    if(ball.x+ball.r > canvas.width){
+    const nx = Math.max(left, Math.min(ball.x, right));
+    const ny = Math.max(top, Math.min(ball.y, bottom));
 
-        ball.x =
-            canvas.width-ball.r;
+    const dx = ball.x - nx;
+    const dy = ball.y - ny;
+    const d2 = dx * dx + dy * dy;
 
-        ball.vx =
-            -Math.abs(ball.vx)
-            * WALL_RESTITUTION;
+    if (d2 < ball.r * ball.r) {
+        const d = Math.sqrt(d2) || 0.0001;
+        const ux = dx / d;
+        const uy = dy / d;
+        const overlap = ball.r - d;
 
-        ball.spin +=
-            ball.vy * 0.02;
-    }
+        ball.x += ux * overlap;
+        ball.y += uy * overlap;
 
-    // 上壁
+        const rvx = ball.vx - paddle.vx;
+        const rvy = ball.vy - paddle.vy;
+        const dot = rvx * ux + rvy * uy;
 
-    if(ball.y-ball.r < 0){
+        if (dot < 0) {
+            const imp = -(1 + restitution) * dot;
+            ball.vx += imp * ux;
+            ball.vy += imp * uy;
 
-        ball.y = ball.r;
+            ball.vx += paddle.vx * 0.35;
+            ball.vy += paddle.vy * 0.35;
 
-        ball.vy =
-            Math.abs(ball.vy)
-            * WALL_RESTITUTION;
-
-        ball.spin +=
-            ball.vx * 0.02;
-    }
-
-    // 下壁
-
-    if(ball.y+ball.r > canvas.height){
-
-        ball.y =
-            canvas.height-ball.r;
-
-        ball.vy =
-            -Math.abs(ball.vy)
-            * WALL_RESTITUTION;
-
-        ball.spin +=
-            ball.vx * 0.02;
+            ball.spin += paddle.vx * 0.03; 
+        }
     }
 }
 
-// =====================================
-// 描画
-// =====================================
-
-function drawBox(){
-
-    ctx.strokeStyle =
-        "#444";
-
-    ctx.lineWidth = 12;
-
-    ctx.strokeRect(
-        6,
-        6,
-        canvas.width-12,
-        canvas.height-12
-    );
-}
-
-function drawBall(){
-
-    ctx.save();
-
-    ctx.translate(
-        ball.x,
-        ball.y
-    );
-
-    ctx.rotate(
-        ball.angle
-    );
-
-    const g =
-    ctx.createRadialGradient(
-        -8,
-        -8,
-        3,
-        0,
-        0,
-        ball.r
-    );
-
-    g.addColorStop(
-        0,
-        "#ffffff"
-    );
-
-    g.addColorStop(
-        0.3,
-        "#66d0ff"
-    );
-
-    g.addColorStop(
-        1,
-        "#0088cc"
-    );
-
-    ctx.fillStyle = g;
-
-    ctx.beginPath();
-    ctx.arc(
-        0,
-        0,
-        ball.r,
-        0,
-        Math.PI*2
-    );
-    ctx.fill();
-
-    ctx.strokeStyle =
-        "rgba(255,255,255,.9)";
-
-    ctx.lineWidth = 3;
-
-    ctx.beginPath();
-    ctx.moveTo(
-        -ball.r*0.6,
-        0
-    );
-    ctx.lineTo(
-        ball.r*0.6,
-        0
-    );
-    ctx.stroke();
-
-    ctx.restore();
-}
-
-// =====================================
-// ループ
-// =====================================
-
-let prev =
-performance.now();
+//----------------------
+// ループ & 描画
+//----------------------
+let prev = performance.now();
 
 function loop(t){
-
-    let dt =
-        (t-prev)/1000;
-
+    let dt = (t - prev) / 1000;
     prev = t;
-
-    if(dt > 0.03)
-        dt = 0.03;
+    if (dt > 0.03) dt = 0.03;
 
     physics(dt);
 
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    drawBox();
-    drawBall();
+    // 1. 箱の内側の床（バックグラウンドに少し奥まった影をつける）
+    ctx.fillStyle = "#1e1e24";
+    ctx.fillRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
 
-    requestAnimationFrame(
-        loop
-    );
+    // 内側のシャドウ（立体感を強調）
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(boxThickness, boxThickness, canvas.width - boxThickness*2, canvas.height - boxThickness*2);
+
+    // 2. パドルの描画
+    ctx.fillStyle = "#ff4444";
+    ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, paddle.h);
+    // パドルのハイライト
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, 4);
+
+    // 3. ボールの描画（回転がわかるように線を入れる）
+    ctx.save();
+    ctx.translate(ball.x, ball.y);
+    ctx.rotate(ball.angle);
+    
+    // 本体
+    ctx.fillStyle = "#00aaff";
+    ctx.beginPath();
+    ctx.arc(0, 0, ball.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ボールの模様（回転視認用）
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-ball.r, 0);
+    ctx.lineTo(ball.r, 0);
+    ctx.stroke();
+    ctx.restore();
+
+    // 4. 外枠の「リアルな箱の壁」を描画（3Dの額縁のような表現）
+    // 上の壁（明るめ）
+    ctx.fillStyle = "#44444a";
+    ctx.fillRect(0, 0, canvas.width, boxThickness);
+    // 左の壁
+    ctx.fillStyle = "#333338";
+    ctx.fillRect(0, boxThickness, boxThickness, canvas.height - boxThickness);
+    // 右の壁
+    ctx.fillStyle = "#2a2a2e";
+    ctx.fillRect(canvas.width - boxThickness, boxThickness, boxThickness, canvas.height - boxThickness);
+    // 下の壁（影側）
+    ctx.fillStyle = "#222226";
+    ctx.fillRect(boxThickness, canvas.height - boxThickness, canvas.width - boxThickness*2, boxThickness);
+
+    requestAnimationFrame(loop);
 }
 
-requestAnimationFrame(
-    loop
-);
+requestAnimationFrame(loop);
 
 </script>
 </body>
