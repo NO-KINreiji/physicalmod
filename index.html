@@ -236,6 +236,7 @@ function physics(dt){
     ball.y += ball.vy * dt;
 
     //--- 壁との衝突 ---
+    // 外枠の「描画上の内境界」とぴったり一致するように修正
     const minBallX = boxThickness + ball.r;
     const maxBallX = canvas.width - boxThickness - ball.r;
     const minBallY = boxThickness + ball.r;
@@ -258,39 +259,44 @@ function physics(dt){
         ball.vy = -Math.abs(ball.vy) * restitution;
     }
 
-    //--- パドルとの衝突 ---
-    const left = paddle.x - paddle.w / 2;
-    const right = paddle.x + paddle.w / 2;
-    const top = paddle.y - paddle.h / 2;
-    const bottom = paddle.y + paddle.h / 2;
+    //--- パドルとの衝突（連続衝突判定の簡易シミュレーション） ---
+    // 高速でパドルが動いた時のめり込み・貫通を防ぐため、複数回判定と押し出しを行います
+    for (let i = 0; i < 3; i++) {
+        const left = paddle.x - paddle.w / 2;
+        const right = paddle.x + paddle.w / 2;
+        const top = paddle.y - paddle.h / 2;
+        const bottom = paddle.y + paddle.h / 2;
 
-    const nx = Math.max(left, Math.min(ball.x, right));
-    const ny = Math.max(top, Math.min(ball.y, bottom));
+        const nx = Math.max(left, Math.min(ball.x, right));
+        const ny = Math.max(top, Math.min(ball.y, bottom));
 
-    const dx = ball.x - nx;
-    const dy = ball.y - ny;
-    const d2 = dx * dx + dy * dy;
+        const dx = ball.x - nx;
+        const dy = ball.y - ny;
+        const d2 = dx * dx + dy * dy;
 
-    if (d2 < ball.r * ball.r) {
-        const d = Math.sqrt(d2) || 0.0001;
-        const ux = dx / d;
-        const uy = dy / d;
-        const overlap = ball.r - d;
+        if (d2 < ball.r * ball.r) {
+            const d = Math.sqrt(d2) || 0.0001;
+            const ux = dx / d;
+            const uy = dy / d;
+            const overlap = ball.r - d;
 
-        ball.x += ux * overlap;
-        ball.y += uy * overlap;
+            // ボールを外側に押し出す
+            ball.x += ux * overlap;
+            ball.y += uy * overlap;
 
-        const rvx = ball.vx - paddle.vx;
-        const rvy = ball.vy - paddle.vy;
-        const dot = rvx * ux + rvy * uy;
+            const rvx = ball.vx - paddle.vx;
+            const rvy = ball.vy - paddle.vy;
+            const dot = rvx * ux + rvy * uy;
 
-        if (dot < 0) {
-            const imp = -(1 + restitution) * dot;
-            ball.vx += imp * ux;
-            ball.vy += imp * uy;
+            if (dot < 0) {
+                const imp = -(1 + restitution) * dot;
+                ball.vx += imp * ux;
+                ball.vy += imp * uy;
 
-            ball.vx += paddle.vx * 0.35;
-            ball.vy += paddle.vy * 0.35;
+                // パドルの速度をボールに上乗せ
+                ball.vx += paddle.vx * 0.35;
+                ball.vy += paddle.vy * 0.35;
+            }
         }
     }
 }
