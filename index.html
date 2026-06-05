@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Physics Ball Box Gym - Fixed v2</title>
+<title>Physics Ball Box Gym - Fixed v3</title>
 
 <style>
 html, body {
@@ -48,27 +48,13 @@ canvas {
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 
-function resize(){
-    canvas.width = innerWidth;
-    canvas.height = innerHeight;
-}
-resize();
-addEventListener("resize", resize);
-
 //----------------------
 // 箱（画面枠）の設定
 //----------------------
 const boxThickness = 20; 
 
 //----------------------
-// 物理パラメータ
-//----------------------
-const defaultGravity = 1600; // ジャイロOFF時の通常下向き重力
-const restitution = 0.85;    // 跳ね返り係数
-const airDrag = 0.999;       // 空気抵抗
-
-//----------------------
-// ボール
+// ボール & パドル（初期値）
 //----------------------
 const ball = {
     x: innerWidth * 0.3,
@@ -78,9 +64,6 @@ const ball = {
     r: 22
 };
 
-//----------------------
-// パドル
-//----------------------
 const paddle = {
     x: innerWidth * 0.5,
     y: innerHeight * 0.7,
@@ -89,6 +72,35 @@ const paddle = {
     vx: 0,
     vy: 0
 };
+
+// 画面比・サイズに合わせた動的レイアウト対応
+function resize(){
+    const prevWidth = canvas.width || innerWidth;
+    const prevHeight = canvas.height || innerHeight;
+
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+
+    // 画面の縦横比（表示領域）の変化に合わせて、ボールとパドルの位置を相対的に再配置
+    if (prevWidth && prevHeight) {
+        ball.x = (ball.x / prevWidth) * canvas.width;
+        ball.y = (ball.y / prevHeight) * canvas.height;
+        paddle.x = (paddle.x / prevWidth) * canvas.width;
+        paddle.y = (paddle.y / prevHeight) * canvas.height;
+    }
+
+    // スマホなどの細長い画面（縦長）でも窮屈にならないよう、画面幅に応じてパドルの横幅を微調整
+    paddle.w = Math.min(160, canvas.width * 0.35);
+}
+resize();
+addEventListener("resize", resize);
+
+//----------------------
+// 物理パラメータ
+//----------------------
+const defaultGravity = 1600; // ジャイロOFF時の通常下向き重力
+const restitution = 0.85;    // 跳ね返り係数（壁用）
+const airDrag = 0.999;       // 空気抵抗
 
 // 貫通防止用のパドル前フレーム位置保存用
 let prevPaddleX = paddle.x;
@@ -186,7 +198,6 @@ function drag(x, y){
         paddle.vy = (targetY - lastY) / dt;
     }
 
-    // 移動前に現在の位置を「前回の位置」として退避
     prevPaddleX = paddle.x;
     prevPaddleY = paddle.y;
 
@@ -245,7 +256,6 @@ function physics(dt){
     ball.y += ball.vy * dt;
 
     //--- 壁との衝突 ---
-    // 外枠の「内側の線（boxThickness）」に完全に一致させる
     const minBallX = boxThickness + ball.r;
     const maxBallX = canvas.width - boxThickness - ball.r;
     const minBallY = boxThickness + ball.r;
@@ -268,12 +278,10 @@ function physics(dt){
         ball.vy = -Math.abs(ball.vy) * restitution;
     }
 
-    //--- パドルとの衝突（貫通対策強化版） ---
-    // 高速ドラッグ時、前フレーム位置（prevPaddle）と現フレーム位置（paddle）の軌跡上で複数サンプルチェック
+    //--- パドルとの衝突（貫通対策＋跳ね返り調整） ---
     const substeps = 4;
     for (let s = 0; s <= substeps; s++) {
         const t = s / substeps;
-        // パドルの時間補間位置
         const currentPaddleX = prevPaddleX + (paddle.x - prevPaddleX) * t;
         const currentPaddleY = prevPaddleY + (paddle.y - prevPaddleY) * t;
 
@@ -295,7 +303,6 @@ function physics(dt){
             const uy = dy / d;
             const overlap = ball.r - d;
 
-            // 衝突位置からボールを即座に押し出す
             ball.x += ux * overlap;
             ball.y += uy * overlap;
 
@@ -304,18 +311,20 @@ function physics(dt){
             const dot = rvx * ux + rvy * uy;
 
             if (dot < 0) {
-                const imp = -(1 + restitution) * dot;
+                // 【修正】パドルとの衝突時のみ、跳ね返り係数を少し抑える（0.85 -> 0.65）
+                const paddleRestitution = 0.65;
+                const imp = -(1 + paddleRestitution) * dot;
                 ball.vx += imp * ux;
                 ball.vy += imp * uy;
 
-                ball.vx += paddle.vx * 0.35;
-                ball.vy += paddle.vy * 0.35;
+                // 【修正】パドルの動く速度の影響（上乗せ分）を「0.35」から「0.15」に弱めて暴発を抑制
+                ball.vx += paddle.vx * 0.15;
+                ball.vy += paddle.vy * 0.15;
             }
-            break; // 衝突が検知され解決したら、このフレームのサブステップは終了
+            break; 
         }
     }
     
-    // 次フレーム用に現在の位置を保存
     prevPaddleX = paddle.x;
     prevPaddleY = paddle.y;
 }
@@ -349,13 +358,13 @@ function loop(t){
     ctx.fillStyle = "rgba(255,255,255,0.3)";
     ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, 4);
 
-    // 3. ボールの描画（スピンなしのシンプルな球体）
+    // 3. ボールの描画
     ctx.fillStyle = "#00aaff";
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // 4. 外枠の「立体的な箱の壁」の描画位置修正（隙間が出ないように画面端に密着）
+    // 4. 外枠の「立体的な箱の壁」
     ctx.fillStyle = "#44444a";
     ctx.fillRect(0, 0, canvas.width, boxThickness); // 上壁
     ctx.fillStyle = "#333338";
